@@ -1,0 +1,5 @@
+
+DJANGO_APPS  = [
+ 
+
+]

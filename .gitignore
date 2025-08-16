@@ -1,0 +1,57 @@
+# Byte-compiled / optimized / compiled files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+*.egg-info/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Database
+#*.sqlite3
+#db.sqlite3
+
+# Media files (user-uploaded content)
+#media/
+
+# Static files (collected during deployment)
+#static_cdn/
+#staticfiles/
+
+# IDE-specific files
+.idea/  # PyCharm
+.vscode/ # VS Code
+*.iml
+
+# Environment variables and secrets
+.env
+local_settings.py
+settings_local.py
+*.ini
+*.json  # If containing sensitive data
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Node.js dependencies (if using frontend build tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Mac OS specific
+.DS_Store
+
+# Thumbnails
+*.thumbnails
+
+# Test coverage
+.coverage
+htmlcov/
