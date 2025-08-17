@@ -3,6 +3,10 @@ from .reading_question_view import ReadingQuestionView
 from .passage_view import PassageView
 from .reading_test_view import ReadingTestView
 from .question_type_config_view import QuestionTypeConfigView
+# NEW: IELTS Instruction System Views
+from .question_range_view import QuestionRangeView, QuestionRangeByPassageView
+from .question_reorder_view import QuestionReorderView, QuestionReorderByPassageView
+from .template_application_view import TemplateApplicationView, TemplateInfoView
 
 __all__ = [
     # REST API Views
@@ -10,4 +14,11 @@ __all__ = [
     'PassageView',
     'ReadingTestView',
     'QuestionTypeConfigView',
+    # NEW: IELTS Instruction System Views
+    'QuestionRangeView',
+    'QuestionRangeByPassageView',
+    'QuestionReorderView',
+    'QuestionReorderByPassageView',
+    'TemplateApplicationView',
+    'TemplateInfoView',
 ]

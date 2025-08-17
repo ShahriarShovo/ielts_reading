@@ -19,11 +19,12 @@ class ReadingQuestionView(APIView):
     2. Uses SharedAuthPermission to verify tokens by calling the auth project
     3. Performs CRUD operations on Reading Question data with proper permission checking
     4. Returns appropriate responses with detailed logging
+    5. NEW: Automatically updates question ranges and maintains sequential ordering
     
     Supported Operations:
-    - POST: Create new Reading Question entry
-    - PUT: Update existing Reading Question entry by ID
-    - DELETE: Delete Reading Question entry by ID
+    - POST: Create new Reading Question entry (with auto range calculation)
+    - PUT: Update existing Reading Question entry by ID (with range recalculation)
+    - DELETE: Delete Reading Question entry by ID (with range recalculation)
     - GET: Retrieve all Reading Question entries for organization
     
     Authentication: Shared Authentication Service (JWT tokens verified via auth project)
@@ -34,13 +35,14 @@ class ReadingQuestionView(APIView):
 
     def post(self, request):
         """
-        Create a new Reading Question entry.
+        Create a new Reading Question entry with automatic range calculation.
         
         This method:
         1. Logs the request details for debugging
         2. Validates the incoming data using ReadingQuestionSerializer
         3. Saves the data to the database
-        4. Returns the created data or validation errors
+        4. NEW: Automatically calculates and updates question ranges for all questions in the passage
+        5. Returns the created data or validation errors
         
         Args:
             request: HTTP request object with Reading Question data and JWT token
@@ -84,8 +86,15 @@ class ReadingQuestionView(APIView):
             # Validate and save the data
             serializer = ReadingQuestionSerializer(data=request.data)
             if serializer.is_valid():
-                serializer.save()
+                # Create the question (this will auto-calculate order_number and question_range)
+                question = serializer.save()
                 logger.info(f"Reading Question created successfully: {serializer.data}")
+                
+                # NEW: Update question ranges for all questions in the passage
+                passage_id = question.passage.id
+                self._update_all_question_ranges(passage_id)
+                logger.info(f"Updated question ranges for passage {passage_id}")
+                
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             else:
                 logger.error(f"Serializer validation failed: {serializer.errors}")
@@ -99,13 +108,14 @@ class ReadingQuestionView(APIView):
 
     def put(self, request, pk):
         """
-        Update a Reading Question entry by ID.
+        Update a Reading Question entry by ID with range recalculation.
         
         This method:
         1. Retrieves the Reading Question object by primary key
         2. Checks if the user has permission to edit this question (same organization)
         3. Updates the data with partial updates allowed
-        4. Returns the updated data or appropriate error responses
+        4. NEW: Recalculates question ranges for all questions in the passage
+        5. Returns the updated data or appropriate error responses
         
         Args:
             request: HTTP request object with updated data and JWT token
@@ -139,8 +149,15 @@ class ReadingQuestionView(APIView):
             # Update the object with partial data (allows updating only some fields)
             serializer = ReadingQuestionSerializer(question_obj, data=request.data, partial=True)
             if serializer.is_valid():
-                serializer.save()
+                # Update the question (this will auto-calculate question_range)
+                question = serializer.save()
                 logger.info(f"Reading Question updated successfully: {serializer.data}")
+                
+                # NEW: Update question ranges for all questions in the passage
+                passage_id = question.passage.id
+                self._update_all_question_ranges(passage_id)
+                logger.info(f"Updated question ranges for passage {passage_id}")
+                
                 return Response(serializer.data, status=status.HTTP_200_OK)
             else:
                 logger.error(f"Serializer validation failed: {serializer.errors}")
@@ -161,13 +178,14 @@ class ReadingQuestionView(APIView):
 
     def delete(self, request, pk):
         """
-        Delete a Reading Question entry by ID.
+        Delete a Reading Question entry by ID with range recalculation.
         
         This method:
         1. Retrieves the Reading Question object by primary key
         2. Checks if the user has permission to delete this question (same organization)
         3. Deletes the object from the database
-        4. Returns success or appropriate error responses
+        4. NEW: Recalculates question ranges for all remaining questions in the passage
+        5. Returns success or appropriate error responses
         
         Args:
             request: HTTP request object with JWT token
@@ -191,9 +209,17 @@ class ReadingQuestionView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
+            # Store passage_id before deletion for range recalculation
+            passage_id = question_obj.passage.id
+            
             # Delete the object
             question_obj.delete()
             logger.info(f"Reading Question with ID {pk} deleted successfully")
+            
+            # NEW: Update question ranges for all remaining questions in the passage
+            self._update_all_question_ranges(passage_id)
+            logger.info(f"Updated question ranges for passage {passage_id} after deletion")
+            
             return Response(status=status.HTTP_204_NO_CONTENT)
                 
         except Question.DoesNotExist:
@@ -217,7 +243,7 @@ class ReadingQuestionView(APIView):
         1. Gets the organization_id from query parameters
         2. Validates that the user has permission to view this organization's data
         3. Retrieves all Reading Question objects for the organization
-        4. Returns the serialized data
+        4. Returns the serialized data with updated question ranges
         
         Args:
             request: HTTP request object with JWT token and organization_id query parameter
@@ -259,3 +285,25 @@ class ReadingQuestionView(APIView):
                 {'error': 'Internal server error'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def _update_all_question_ranges(self, passage_id):
+        """
+        Update question ranges for all questions in a passage.
+        
+        This helper method ensures that all questions in a passage have
+        correctly calculated question ranges after any CRUD operation.
+        
+        Args:
+            passage_id (int): The ID of the passage to update ranges for
+        """
+        try:
+            # Get all questions in the passage
+            questions = Question.objects.filter(passage_id=passage_id)
+            
+            # Update ranges for each question
+            for question in questions:
+                question.update_question_range()
+            
+            logger.info(f"Updated question ranges for {questions.count()} questions in passage {passage_id}")
+        except Exception as e:
+            logger.error(f"Error updating question ranges for passage {passage_id}: {str(e)}")

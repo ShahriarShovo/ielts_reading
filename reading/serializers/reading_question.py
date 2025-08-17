@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from reading.models import Question
+from django.db import models
 
 class ReadingQuestionSerializer(serializers.ModelSerializer):
     """
@@ -17,6 +18,9 @@ class ReadingQuestionSerializer(serializers.ModelSerializer):
     - Flexible data storage for different question types
     - Word limit enforcement for completion questions
     - Cross-field validation for question type requirements
+    - IELTS instruction system with dynamic question ranges
+    - Sequential ordering across all question types
+    - Template integration support
     """
     
     class Meta:
@@ -28,6 +32,10 @@ class ReadingQuestionSerializer(serializers.ModelSerializer):
             'question_text',         # The actual question text
             'question_type',         # Type of question (MC, TFNG, etc.)
             'custom_question_type',  # For custom question types
+            'question_range',        # NEW: Auto-calculated question range (e.g., "Questions 1-7")
+            'instruction',           # NEW: IELTS instruction text
+            'answer_format',         # NEW: Answer format instructions
+            'order_number',          # NEW: Sequential order across all question types
             'data',                  # Flexible JSON data storage
             'options',               # Multiple choice options
             'correct_answer',        # Single correct answer
@@ -36,10 +44,10 @@ class ReadingQuestionSerializer(serializers.ModelSerializer):
             'word_limit',            # Word limit for completion questions
             'explanation',           # Optional explanation
             'image',                 # Optional image for diagram questions
-            'order',                 # Sequence order within passage
             'created_at',            # When question was created
             'updated_at'             # When question was last updated
         ]
+        # Note: 'order' field is deprecated and replaced by 'order_number'
 
     def validate_question_text(self, value):
         """
@@ -80,6 +88,26 @@ class ReadingQuestionSerializer(serializers.ModelSerializer):
         valid_types = [choice[0] for choice in Question.QUESTION_TYPE_CHOICES]
         if value not in valid_types:
             raise serializers.ValidationError(f"Invalid question type. Must be one of: {valid_types}")
+        return value
+
+    def validate_order_number(self, value):
+        """
+        Validate order_number is positive.
+        
+        This ensures that questions have valid sequential order numbers
+        (greater than 0) for proper ordering across all question types.
+        
+        Args:
+            value (int): The order number to validate
+            
+        Returns:
+            int: The validated order number
+            
+        Raises:
+            ValidationError: If validation fails
+        """
+        if value <= 0:
+            raise serializers.ValidationError("Order number must be greater than 0")
         return value
 
     def validate_points(self, value):
@@ -174,3 +202,56 @@ class ReadingQuestionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Word limit is recommended for completion questions")
         
         return data
+
+    def create(self, validated_data):
+        """
+        Create a new question with automatic order_number assignment.
+        
+        This method ensures that new questions get the next available
+        order_number in the passage, maintaining sequential ordering.
+        
+        Args:
+            validated_data (dict): The validated data for creating the question
+            
+        Returns:
+            Question: The created question instance
+        """
+        # Auto-assign order_number if not provided
+        if 'order_number' not in validated_data:
+            passage = validated_data.get('passage')
+            if passage:
+                # Get the highest order_number in this passage and add 1
+                max_order = Question.objects.filter(passage=passage).aggregate(
+                    max_order=models.Max('order_number')
+                )['max_order'] or 0
+                validated_data['order_number'] = max_order + 1
+        
+        # Create the question
+        question = super().create(validated_data)
+        
+        # Auto-calculate question range after creation
+        question.update_question_range()
+        
+        return question
+
+    def update(self, instance, validated_data):
+        """
+        Update an existing question with automatic range recalculation.
+        
+        This method ensures that when a question is updated, its
+        question_range is recalculated to reflect any changes.
+        
+        Args:
+            instance (Question): The existing question instance
+            validated_data (dict): The validated data for updating
+            
+        Returns:
+            Question: The updated question instance
+        """
+        # Update the question
+        question = super().update(instance, validated_data)
+        
+        # Recalculate question range after update
+        question.update_question_range()
+        
+        return question
