@@ -1,274 +1,294 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from reading.models import ReadingTest
-from reading.serializers.reading_test import ReadingTestSerializer
-from reading.permissions import SharedAuthPermission
+from django.shortcuts import get_object_or_404
+from django.db import transaction
 import logging
 
-logger = logging.getLogger('reading')
+from reading.models import ReadingTest
+from reading.serializers import ReadingTestSerializer
+from reading.permissions import SharedAuthPermission
+
+# Set up logging for debugging and monitoring
+logger = logging.getLogger(__name__)
 
 class ReadingTestView(APIView):
     """
-    ReadingTestView: Handles CRUD operations for Reading Test data.
+    API view for managing ReadingTest objects.
     
-    This view uses Shared Authentication Service for microservices communication:
-    1. Receives requests with JWT tokens from the authentication project
-    2. Uses SharedAuthPermission to verify tokens by calling the auth project
-    3. Performs CRUD operations on Reading Test data with proper permission checking
-    4. Returns appropriate responses with detailed logging
+    This view provides CRUD operations for ReadingTest model instances.
+    It includes organization-based data isolation and comprehensive error handling.
     
-    Supported Operations:
-    - POST: Create new Reading Test entry
-    - PUT: Update existing Reading Test entry by ID
-    - DELETE: Delete Reading Test entry by ID
-    - GET: Retrieve all Reading Test entries for organization
-    
-    Authentication: Shared Authentication Service (JWT tokens verified via auth project)
-    Permission: Users can only access their organization's data
+    Key Features:
+    - POST: Create a new reading test
+    - GET: Retrieve reading tests (all or by ID)
+    - PUT: Update an existing reading test
+    - DELETE: Delete a reading test
+    - Organization-based data isolation
+    - Comprehensive validation and error handling
     """
+    
+    # Require authentication for all operations
     permission_classes = [SharedAuthPermission]
-    authentication_classes = []
-
+    authentication_classes = []  # No local authentication, relies on shared service
+    
     def post(self, request):
         """
-        Create a new Reading Test entry.
+        Create a new reading test.
         
-        This method:
-        1. Logs the request details for debugging
-        2. Validates the incoming data using ReadingTestSerializer
-        3. Saves the data to the database
-        4. Returns the created data or validation errors
+        This method creates a new ReadingTest instance with the provided data.
+        It automatically assigns the organization_id from the authenticated user.
         
         Args:
-            request: HTTP request object with Reading Test data and JWT token
+            request: The HTTP request object containing test data
             
         Returns:
-            Response with created data (201) or validation errors (400)
+            Response: JSON response with created test data or error message
         """
-        logger.info("=== READING TEST POST METHOD CALLED ===")
-        logger.info(f"Request data: {request.data}")
-        logger.info(f"Request headers: {request.headers}")
-        
-        # Log user info from shared auth service
-        logger.info(f"User ID: {getattr(request, 'user_id', 'N/A')}")
-        logger.info(f"Organization ID: {getattr(request, 'organization_id', 'N/A')}")
-        logger.info(f"User Email: {getattr(request, 'user_email', 'N/A')}")
-        
         try:
-            # Get organization_id from authenticated user and auto-assign it
-            user_org_id = getattr(request, 'organization_id', None)
-            if user_org_id:
-                # Add organization_id to request data if not present
-                if 'organization_id' not in request.data:
-                    request.data['organization_id'] = user_org_id
-                    logger.info(f"Auto-assigned organization_id: {user_org_id}")
-                else:
-                    # Verify that client-sent organization_id matches authenticated user
-                    client_org_id = request.data.get('organization_id')
-                    if str(client_org_id) != str(user_org_id):
-                        logger.error(f"Organization ID mismatch: Client sent {client_org_id}, User has {user_org_id}")
-                        return Response(
-                            {'error': 'Organization ID does not match authenticated user'}, 
-                            status=status.HTTP_403_FORBIDDEN
-                        )
-            else:
-                logger.error("No organization_id found in authenticated user")
-                return Response(
-                    {'error': 'User organization not found'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Log the request for debugging
+            logger.info(f"Creating new reading test for organization: {request.organization_id}")
             
-            # Validate and save the data
-            serializer = ReadingTestSerializer(data=request.data)
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
+            
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
+            
+            # Prepare data for serializer
+            data = request.data.copy()
+            data['organization_id'] = organization_id
+            
+            logger.info(f"Data being sent to serializer: {data}")
+            
+            # Validate and create the test
+            serializer = ReadingTestSerializer(data=data)
             if serializer.is_valid():
-                serializer.save()
-                logger.info(f"Reading Test created successfully: {serializer.data}")
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                # Use transaction to ensure data consistency
+                with transaction.atomic():
+                    reading_test = serializer.save()
+                
+                # Log successful creation
+                logger.info(f"Successfully created reading test: {reading_test.test_id}")
+                logger.info(f"Test organization_id: {reading_test.organization_id}")
+                logger.info(f"Expected organization_id: {organization_id}")
+                
+                # Return the created test data
+                return Response({
+                    'message': 'Reading test created successfully',
+                    'test': ReadingTestSerializer(reading_test).data
+                }, status=status.HTTP_201_CREATED)
             else:
-                logger.error(f"Serializer validation failed: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                # Log validation errors
+                logger.warning(f"Validation error creating reading test: {serializer.errors}")
+                return Response({
+                    'message': 'Validation error',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
-            logger.error(f"Error creating Reading Test: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def put(self, request, pk):
+            # Log unexpected errors
+            logger.error(f"Error creating reading test: {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def get(self, request, test_id=None):
         """
-        Update a Reading Test entry by ID.
+        Retrieve reading test(s).
         
-        This method:
-        1. Retrieves the Reading Test object by primary key
-        2. Checks if the user has permission to edit this test (same organization)
-        3. Updates the data with partial updates allowed
-        4. Returns the updated data or appropriate error responses
+        This method retrieves either a specific reading test by ID or all reading tests
+        for the authenticated user's organization.
         
         Args:
-            request: HTTP request object with updated data and JWT token
-            pk: Primary key (ID) of the Reading Test object to update
+            request: The HTTP request object
+            test_id (str, optional): The UUID of the specific test to retrieve
             
         Returns:
-            Response with updated data (200), not found (404), or permission denied (403)
+            Response: JSON response with test data or error message
         """
-        logger.info(f"=== READING TEST PUT METHOD CALLED for ID: {pk} ===")
-        logger.info(f"Request data: {request.data}")
+        logger.info("=== READING TEST VIEW GET METHOD CALLED ===")
+        logger.info(f"Request path: {request.path}")
+        logger.info(f"Request method: {request.method}")
+        logger.info(f"Authorization header: {request.headers.get('Authorization')}")
         
         try:
-            # Get the Reading Test object from database
-            test_obj = ReadingTest.objects.get(pk=pk)
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
+            logger.info(f"Organization ID from request: {organization_id}")
             
-            # Check if user has permission to edit this test (same organization)
-            user_org_id = getattr(request, 'organization_id', None)
-            if test_obj.organization_id != str(user_org_id):
-                logger.error(f"Permission denied: User org {user_org_id} cannot edit test org {test_obj.organization_id}")
-                return Response(
-                    {'error': 'Permission denied'}, 
-                    status=status.HTTP_403_FORBIDDEN
-                )
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
             
-            # Auto-assign organization_id for updates if not provided
-            if user_org_id and 'organization_id' not in request.data:
-                request.data['organization_id'] = user_org_id
-                logger.info(f"Auto-assigned organization_id for update: {user_org_id}")
+            if test_id:
+                # Retrieve a specific test by ID
+                logger.info(f"Retrieving reading test: {test_id} for organization: {organization_id}")
+                
+                # Get the test and verify organization ownership
+                reading_test = get_object_or_404(ReadingTest, test_id=test_id)
+                
+                # Check if the test belongs to the user's organization
+                if reading_test.organization_id != organization_id:
+                    logger.warning(f"Unauthorized access attempt to test {test_id} by organization {organization_id}")
+                    return Response({
+                        'message': 'Access denied'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                
+                # Return the specific test data
+                return Response({
+                    'message': 'Reading test retrieved successfully',
+                    'test': ReadingTestSerializer(reading_test).data
+                }, status=status.HTTP_200_OK)
+            else:
+                # Retrieve all tests for the organization
+                logger.info(f"Retrieving all reading tests for organization: {organization_id}")
+                
+                # Get all tests for the organization
+                reading_tests = ReadingTest.objects.filter(organization_id=organization_id)
+                
+                # Serialize the tests
+                serializer = ReadingTestSerializer(reading_tests, many=True)
+                
+                # Return all tests data
+                return Response({
+                    'message': 'Reading tests retrieved successfully',
+                    'tests': serializer.data,
+                    'count': len(serializer.data)
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            # Log unexpected errors
+            logger.error(f"Error retrieving reading test(s): {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request, test_id):
+        """
+        Update an existing reading test.
+        
+        This method updates an existing ReadingTest instance with the provided data.
+        It verifies organization ownership before allowing updates.
+        
+        Args:
+            request: The HTTP request object containing updated test data
+            test_id (str): The UUID of the test to update
             
-            # Update the object with partial data (allows updating only some fields)
-            serializer = ReadingTestSerializer(test_obj, data=request.data, partial=True)
+        Returns:
+            Response: JSON response with updated test data or error message
+        """
+        try:
+            # Log the request for debugging
+            logger.info(f"Updating reading test: {test_id} for organization: {request.organization_id}")
+            
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
+            
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
+            
+            # Get the test and verify organization ownership
+            reading_test = get_object_or_404(ReadingTest, test_id=test_id)
+            
+            # Check if the test belongs to the user's organization
+            if reading_test.organization_id != organization_id:
+                logger.warning(f"Unauthorized update attempt to test {test_id} by organization {organization_id}")
+                return Response({
+                    'message': 'Access denied'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # Prepare data for serializer (ensure organization_id is preserved)
+            data = request.data.copy()
+            data['organization_id'] = organization_id
+            
+            # Validate and update the test
+            serializer = ReadingTestSerializer(reading_test, data=data, partial=True)
             if serializer.is_valid():
-                serializer.save()
-                logger.info(f"Reading Test updated successfully: {serializer.data}")
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            else:
-                logger.error(f"Serializer validation failed: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                # Use transaction to ensure data consistency
+                with transaction.atomic():
+                    updated_test = serializer.save()
                 
-        except ReadingTest.DoesNotExist:
-            logger.error(f"Reading Test with ID {pk} not found")
-            return Response(
-                {'error': 'Reading Test not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+                # Log successful update
+                logger.info(f"Successfully updated reading test: {test_id}")
+                
+                # Return the updated test data
+                return Response({
+                    'message': 'Reading test updated successfully',
+                    'test': ReadingTestSerializer(updated_test).data
+                }, status=status.HTTP_200_OK)
+            else:
+                # Log validation errors
+                logger.warning(f"Validation error updating reading test: {serializer.errors}")
+                return Response({
+                    'message': 'Validation error',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
-            logger.error(f"Error updating Reading Test: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def delete(self, request, pk):
+            # Log unexpected errors
+            logger.error(f"Error updating reading test: {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request, test_id):
         """
-        Delete a Reading Test entry by ID.
+        Delete a reading test.
         
-        This method:
-        1. Retrieves the Reading Test object by primary key
-        2. Checks if the user has permission to delete this test (same organization)
-        3. Deletes the object from the database
-        4. Returns success or appropriate error responses
+        This method deletes an existing ReadingTest instance.
+        It verifies organization ownership before allowing deletion.
         
         Args:
-            request: HTTP request object with JWT token
-            pk: Primary key (ID) of the Reading Test object to delete
+            request: The HTTP request object
+            test_id (str): The UUID of the test to delete
             
         Returns:
-            Response with success (204), not found (404), or permission denied (403)
+            Response: JSON response with success or error message
         """
-        logger.info(f"=== READING TEST DELETE METHOD CALLED for ID: {pk} ===")
-        
         try:
-            # Get organization_id from authenticated user and auto-assign it
-            user_org_id = getattr(request, 'organization_id', None)
-            if not user_org_id:
-                logger.error("No organization_id found in authenticated user")
-                return Response(
-                    {'error': 'User organization not found'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Log the request for debugging
+            logger.info(f"Deleting reading test: {test_id} for organization: {request.organization_id}")
             
-            # Get the Reading Test object from database
-            test_obj = ReadingTest.objects.get(pk=pk)
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
             
-            # Check if user has permission to delete this test (same organization)
-            if test_obj.organization_id != str(user_org_id):
-                logger.error(f"Permission denied: User org {user_org_id} cannot delete test org {test_obj.organization_id}")
-                return Response(
-                    {'error': 'Permission denied'}, 
-                    status=status.HTTP_403_FORBIDDEN
-                )
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
             
-            # Delete the object
-            test_obj.delete()
-            logger.info(f"Reading Test with ID {pk} deleted successfully")
-            return Response(status=status.HTTP_204_NO_CONTENT)
-                
-        except ReadingTest.DoesNotExist:
-            logger.error(f"Reading Test with ID {pk} not found")
-            return Response(
-                {'error': 'Reading Test not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            logger.error(f"Error deleting Reading Test: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def get(self, request):
-        """
-        Get all Reading Test entries for the user's organization.
-        
-        This method:
-        1. Gets the organization_id from query parameters
-        2. Validates that the user has permission to view this organization's data
-        3. Retrieves all Reading Test objects for the organization
-        4. Returns the serialized data
-        
-        Args:
-            request: HTTP request object with JWT token and organization_id query parameter
+            # Get the test and verify organization ownership
+            reading_test = get_object_or_404(ReadingTest, test_id=test_id)
             
-        Returns:
-            Response with all Reading Test data (200), bad request (400), or permission denied (403)
-        """
-        logger.info("=== READING TEST GET METHOD CALLED ===")
-        
-        try:
-            # Get organization_id from authenticated user
-            user_org_id = getattr(request, 'organization_id', None)
-            if not user_org_id:
-                logger.error("No organization_id found in authenticated user")
-                return Response(
-                    {'error': 'User organization not found'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Check if the test belongs to the user's organization
+            if reading_test.organization_id != organization_id:
+                logger.warning(f"Unauthorized delete attempt to test {test_id} by organization {organization_id}")
+                return Response({
+                    'message': 'Access denied'
+                }, status=status.HTTP_403_FORBIDDEN)
             
-            # Get organization_id from query parameters (for backward compatibility)
-            organization_id = request.query_params.get('organization_id')
-            if not organization_id:
-                # Auto-assign organization_id from authenticated user
-                organization_id = user_org_id
-                logger.info(f"Auto-assigned organization_id for GET: {user_org_id}")
-            else:
-                # Verify that client-sent organization_id matches authenticated user
-                if str(organization_id) != str(user_org_id):
-                    logger.error(f"Organization ID mismatch: Client sent {organization_id}, User has {user_org_id}")
-                    return Response(
-                        {'error': 'Organization ID does not match authenticated user'}, 
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+            # Store test name for logging
+            test_name = reading_test.test_name
             
-            # Get all Reading Test objects for the organization
-            test_objects = ReadingTest.objects.filter(organization_id=organization_id)
-            serializer = ReadingTestSerializer(test_objects, many=True)
+            # Use transaction to ensure data consistency
+            with transaction.atomic():
+                # Delete the test (this will cascade to related passages and questions)
+                reading_test.delete()
             
-            logger.info(f"Retrieved {len(serializer.data)} Reading Test objects for organization {organization_id}")
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            # Log successful deletion
+            logger.info(f"Successfully deleted reading test: {test_id} ({test_name})")
+            
+            # Return success message
+            return Response({
+                'message': 'Reading test deleted successfully',
+                'deleted_test_id': test_id
+            }, status=status.HTTP_200_OK)
                 
         except Exception as e:
-            logger.error(f"Error retrieving Reading Test objects: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            # Log unexpected errors
+            logger.error(f"Error deleting reading test: {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

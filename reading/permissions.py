@@ -6,8 +6,8 @@ from rest_framework.permissions import BasePermission
 from django.conf import settings
 import logging
 
-# CHANGED: Use the correct logger name that matches settings
-logger = logging.getLogger('writing')
+# FIXED: Use the correct logger name for reading service
+logger = logging.getLogger('reading')
 
 class SharedAuthPermission(BasePermission):
     """

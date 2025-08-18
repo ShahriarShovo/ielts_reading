@@ -5,6 +5,7 @@ from .views import (
     PassageView,
     ReadingTestView,
     QuestionTypeConfigView,
+    QuestionTypeView,
     # NEW: IELTS Instruction System Views
     QuestionRangeView,
     QuestionRangeByPassageView,
@@ -17,21 +18,25 @@ from .views import (
 app_name = 'reading'
 
 urlpatterns = [
-    # REST API URLs for Reading Tests
+    # REST API URLs for Reading Tests (UUID-based)
     path('tests/', ReadingTestView.as_view(), name='api_tests'),
-    path('tests/<int:pk>/', ReadingTestView.as_view(), name='api_test_detail'),
+    path('tests/<uuid:test_id>/', ReadingTestView.as_view(), name='api_test_detail'),
     
-    # REST API URLs for Reading Passages
+    # REST API URLs for Reading Passages (UUID-based)
     path('passages/', PassageView.as_view(), name='api_passages'),
-    path('passages/<int:pk>/', PassageView.as_view(), name='api_passage_detail'),
+    path('passages/<uuid:passage_id>/', PassageView.as_view(), name='api_passage_detail'),
     
-    # REST API URLs for Reading Questions
+    # REST API URLs for Question Types (UUID-based)
+    path('question-types/', QuestionTypeView.as_view(), name='api_question_types'),
+    path('question-types/<uuid:question_type_id>/', QuestionTypeView.as_view(), name='api_question_type_detail'),
+    
+    # REST API URLs for Reading Questions (Legacy - for backward compatibility)
     path('questions/', ReadingQuestionView.as_view(), name='api_questions'),
     path('questions/<int:pk>/', ReadingQuestionView.as_view(), name='api_question_detail'),
     
     # REST API URLs for Question Type Configuration
-    path('question-types/', QuestionTypeConfigView.as_view(), name='api_question_types'),
-    path('question-types/<int:pk>/', QuestionTypeConfigView.as_view(), name='api_question_type_detail'),
+    path('question-type-config/', QuestionTypeConfigView.as_view(), name='api_question_type_config'),
+    path('question-type-config/<int:pk>/', QuestionTypeConfigView.as_view(), name='api_question_type_config_detail'),
     
     # NEW: IELTS Instruction System URLs
     

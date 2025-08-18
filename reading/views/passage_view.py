@@ -1,291 +1,323 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from reading.models import Passage, ReadingTest
-from reading.serializers.passage import PassageSerializer
-from reading.permissions import SharedAuthPermission
+from django.shortcuts import get_object_or_404
+from django.db import transaction
 import logging
 
-logger = logging.getLogger('reading')
+from reading.models import Passage, ReadingTest
+from reading.serializers import PassageSerializer
+from reading.permissions import SharedAuthPermission
+
+# Set up logging for debugging and monitoring
+logger = logging.getLogger(__name__)
 
 class PassageView(APIView):
     """
-    PassageView: Handles CRUD operations for Reading Passage data.
+    API view for managing Passage objects.
     
-    This view uses Shared Authentication Service for microservices communication:
-    1. Receives requests with JWT tokens from the authentication project
-    2. Uses SharedAuthPermission to verify tokens by calling the auth project
-    3. Performs CRUD operations on Reading Passage data with proper permission checking
-    4. Returns appropriate responses with detailed logging
+    This view provides CRUD operations for Passage model instances.
+    It includes test-based data isolation and comprehensive error handling.
     
-    Supported Operations:
-    - POST: Create new Reading Passage entry
-    - PUT: Update existing Reading Passage entry by ID
-    - DELETE: Delete Reading Passage entry by ID
-    - GET: Retrieve all Reading Passage entries for organization
-    
-    Authentication: Shared Authentication Service (JWT tokens verified via auth project)
-    Permission: Users can only access their organization's data
+    Key Features:
+    - POST: Create a new passage
+    - GET: Retrieve passages (all or by ID)
+    - PUT: Update an existing passage
+    - DELETE: Delete a passage
+    - Test-based data isolation
+    - Comprehensive validation and error handling
     """
+    
+    # Require authentication for all operations
     permission_classes = [SharedAuthPermission]
-    authentication_classes = []
-
+    authentication_classes = []  # No local authentication, relies on shared service
+    
     def post(self, request):
         """
-        Create a new Reading Passage entry.
+        Create a new passage.
         
-        This method:
-        1. Logs the request details for debugging
-        2. Validates the incoming data using PassageSerializer
-        3. Saves the data to the database
-        4. Returns the created data or validation errors
+        This method creates a new Passage instance with the provided data.
+        It verifies that the test belongs to the authenticated user's organization.
         
         Args:
-            request: HTTP request object with Reading Passage data and JWT token
+            request: The HTTP request object containing passage data
             
         Returns:
-            Response with created data (201) or validation errors (400)
+            Response: JSON response with created passage data or error message
         """
-        logger.info("=== READING PASSAGE POST METHOD CALLED ===")
-        logger.info(f"Request data: {request.data}")
-        logger.info(f"Request headers: {request.headers}")
-        
-        # Log user info from shared auth service
-        logger.info(f"User ID: {getattr(request, 'user_id', 'N/A')}")
-        logger.info(f"Organization ID: {getattr(request, 'organization_id', 'N/A')}")
-        logger.info(f"User Email: {getattr(request, 'user_email', 'N/A')}")
-        
         try:
-            # Get organization_id from authenticated user
-            user_org_id = getattr(request, 'organization_id', None)
-            if not user_org_id:
-                logger.error("No organization_id found in authenticated user")
-                return Response(
-                    {'error': 'User organization not found'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Log the request for debugging
+            logger.info(f"Creating new passage for organization: {request.organization_id}")
+            
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
+            
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
+            
+            # Get the test ID from request data
+            test_id = request.data.get('test')
+            if not test_id:
+                return Response({
+                    'message': 'Test ID is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            logger.info(f"Attempting to create passage for test_id: {test_id}")
+            logger.info(f"Request organization_id: {organization_id}")
             
             # Verify that the test belongs to the user's organization
-            test_id = request.data.get('test')
-            if test_id:
-                try:
-                    test_obj = ReadingTest.objects.get(id=test_id)
-                    if test_obj.organization_id != str(user_org_id):
-                        logger.error(f"Permission denied: User org {user_org_id} cannot create passage for test org {test_obj.organization_id}")
-                        return Response(
-                            {'error': 'Permission denied - test does not belong to your organization'}, 
-                            status=status.HTTP_403_FORBIDDEN
-                        )
-                except ReadingTest.DoesNotExist:
-                    logger.error(f"Test with ID {test_id} not found")
-                    return Response(
-                        {'error': 'Specified test does not exist'}, 
-                        status=status.HTTP_404_NOT_FOUND
-                    )
+            try:
+                test = ReadingTest.objects.get(test_id=test_id)
+                logger.info(f"Found test: {test.test_id}")
+                logger.info(f"Test organization_id: {test.organization_id}")
+                logger.info(f"Request organization_id: {organization_id}")
+                logger.info(f"Organization match: {test.organization_id == organization_id}")
+                
+                if test.organization_id != organization_id:
+                    logger.warning(f"Unauthorized access attempt to test {test_id} by organization {organization_id}")
+                    return Response({
+                        'message': 'Access denied - test not found or not owned by your organization'
+                    }, status=status.HTTP_403_FORBIDDEN)
+            except ReadingTest.DoesNotExist:
+                return Response({
+                    'message': 'Test not found'
+                }, status=status.HTTP_404_NOT_FOUND)
             
-            # Validate and save the data
+            # Validate and create the passage
             serializer = PassageSerializer(data=request.data)
             if serializer.is_valid():
-                serializer.save()
-                logger.info(f"Reading Passage created successfully: {serializer.data}")
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                # Use transaction to ensure data consistency
+                with transaction.atomic():
+                    passage = serializer.save()
+                
+                # Log successful creation
+                logger.info(f"Successfully created passage: {passage.passage_id}")
+                
+                # Return the created passage data
+                return Response({
+                    'message': 'Passage created successfully',
+                    'passage': PassageSerializer(passage).data
+                }, status=status.HTTP_201_CREATED)
             else:
-                logger.error(f"Serializer validation failed: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                # Log validation errors
+                logger.warning(f"Validation error creating passage: {serializer.errors}")
+                return Response({
+                    'message': 'Validation error',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
-            logger.error(f"Error creating Reading Passage: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def put(self, request, pk):
+            # Log unexpected errors
+            logger.error(f"Error creating passage: {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def get(self, request, passage_id=None):
         """
-        Update a Reading Passage entry by ID.
+        Retrieve passage(s).
         
-        This method:
-        1. Retrieves the Reading Passage object by primary key
-        2. Checks if the user has permission to edit this passage (same organization)
-        3. Updates the data with partial updates allowed
-        4. Returns the updated data or appropriate error responses
+        This method retrieves either a specific passage by ID or all passages
+        for a specific test that belongs to the authenticated user's organization.
         
         Args:
-            request: HTTP request object with updated data and JWT token
-            pk: Primary key (ID) of the Reading Passage object to update
+            request: The HTTP request object
+            passage_id (str, optional): The UUID of the specific passage to retrieve
             
         Returns:
-            Response with updated data (200), not found (404), or permission denied (403)
+            Response: JSON response with passage data or error message
         """
-        logger.info(f"=== READING PASSAGE PUT METHOD CALLED for ID: {pk} ===")
-        logger.info(f"Request data: {request.data}")
-        
         try:
-            # Get the Reading Passage object from database
-            passage_obj = Passage.objects.get(pk=pk)
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
             
-            # Check if user has permission to edit this passage (same organization)
-            user_org_id = getattr(request, 'organization_id', None)
-            if passage_obj.test.organization_id != str(user_org_id):
-                logger.error(f"Permission denied: User org {user_org_id} cannot edit passage org {passage_obj.test.organization_id}")
-                return Response(
-                    {'error': 'Permission denied'}, 
-                    status=status.HTTP_403_FORBIDDEN
-                )
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
             
-                                                # Verify that the test belongs to the user's organization (if test is being updated)
-            test_id = request.data.get('test')
-            if test_id:
+            if passage_id:
+                # Retrieve a specific passage by ID
+                logger.info(f"Retrieving passage: {passage_id} for organization: {organization_id}")
+                
+                # Get the passage and verify test ownership
+                passage = get_object_or_404(Passage, passage_id=passage_id)
+                
+                # Check if the passage's test belongs to the user's organization
+                if passage.test.organization_id != organization_id:
+                    logger.warning(f"Unauthorized access attempt to passage {passage_id} by organization {organization_id}")
+                    return Response({
+                        'message': 'Access denied'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                
+                # Return the specific passage data
+                return Response({
+                    'message': 'Passage retrieved successfully',
+                    'passage': PassageSerializer(passage).data
+                }, status=status.HTTP_200_OK)
+            else:
+                # Retrieve passages for a specific test
+                test_id = request.query_params.get('test_id')
+                if not test_id:
+                    return Response({
+                        'message': 'Test ID is required as query parameter'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                logger.info(f"Retrieving passages for test: {test_id} for organization: {organization_id}")
+                
+                # Verify that the test belongs to the user's organization
                 try:
-                    test_obj = ReadingTest.objects.get(id=test_id)
-                    if test_obj.organization_id != str(user_org_id):
-                        logger.error(f"Permission denied: User org {user_org_id} cannot update passage to test org {test_obj.organization_id}")
-                        return Response(
-                            {'error': 'Permission denied - test does not belong to your organization'}, 
-                            status=status.HTTP_403_FORBIDDEN
-                        )
+                    test = ReadingTest.objects.get(test_id=test_id)
+                    if test.organization_id != organization_id:
+                        logger.warning(f"Unauthorized access attempt to test {test_id} by organization {organization_id}")
+                        return Response({
+                            'message': 'Access denied - test not found or not owned by your organization'
+                        }, status=status.HTTP_403_FORBIDDEN)
                 except ReadingTest.DoesNotExist:
-                    logger.error(f"Test with ID {test_id} not found")
-                    return Response(
-                        {'error': 'Specified test does not exist'}, 
-                        status=status.HTTP_404_NOT_FOUND
-                    )
+                    return Response({
+                        'message': 'Test not found'
+                    }, status=status.HTTP_404_NOT_FOUND)
+                
+                # Get all passages for the test
+                passages = Passage.objects.filter(test=test)
+                
+                # Serialize the passages
+                serializer = PassageSerializer(passages, many=True)
+                
+                # Return all passages data
+                return Response({
+                    'message': 'Passages retrieved successfully',
+                    'passages': serializer.data,
+                    'count': len(serializer.data)
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            # Log unexpected errors
+            logger.error(f"Error retrieving passage(s): {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request, passage_id):
+        """
+        Update an existing passage.
+        
+        This method updates an existing Passage instance with the provided data.
+        It verifies test ownership before allowing updates.
+        
+        Args:
+            request: The HTTP request object containing updated passage data
+            passage_id (str): The UUID of the passage to update
             
-            # Update the object with partial data (allows updating only some fields)
-            serializer = PassageSerializer(passage_obj, data=request.data, partial=True)
+        Returns:
+            Response: JSON response with updated passage data or error message
+        """
+        try:
+            # Log the request for debugging
+            logger.info(f"Updating passage: {passage_id} for organization: {request.organization_id}")
+            
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
+            
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
+            
+            # Get the passage and verify test ownership
+            passage = get_object_or_404(Passage, passage_id=passage_id)
+            
+            # Check if the passage's test belongs to the user's organization
+            if passage.test.organization_id != organization_id:
+                logger.warning(f"Unauthorized update attempt to passage {passage_id} by organization {organization_id}")
+                return Response({
+                    'message': 'Access denied'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # Validate and update the passage
+            serializer = PassageSerializer(passage, data=request.data, partial=True)
             if serializer.is_valid():
-                serializer.save()
-                logger.info(f"Reading Passage updated successfully: {serializer.data}")
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            else:
-                logger.error(f"Serializer validation failed: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                # Use transaction to ensure data consistency
+                with transaction.atomic():
+                    updated_passage = serializer.save()
                 
-        except Passage.DoesNotExist:
-            logger.error(f"Reading Passage with ID {pk} not found")
-            return Response(
-                {'error': 'Reading Passage not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+                # Log successful update
+                logger.info(f"Successfully updated passage: {passage_id}")
+                
+                # Return the updated passage data
+                return Response({
+                    'message': 'Passage updated successfully',
+                    'passage': PassageSerializer(updated_passage).data
+                }, status=status.HTTP_200_OK)
+            else:
+                # Log validation errors
+                logger.warning(f"Validation error updating passage: {serializer.errors}")
+                return Response({
+                    'message': 'Validation error',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
-            logger.error(f"Error updating Reading Passage: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def delete(self, request, pk):
+            # Log unexpected errors
+            logger.error(f"Error updating passage: {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request, passage_id):
         """
-        Delete a Reading Passage entry by ID.
+        Delete a passage.
         
-        This method:
-        1. Retrieves the Reading Passage object by primary key
-        2. Checks if the user has permission to delete this passage (same organization)
-        3. Deletes the object from the database
-        4. Returns success or appropriate error responses
+        This method deletes an existing Passage instance.
+        It verifies test ownership before allowing deletion.
         
         Args:
-            request: HTTP request object with JWT token
-            pk: Primary key (ID) of the Reading Passage object to delete
+            request: The HTTP request object
+            passage_id (str): The UUID of the passage to delete
             
         Returns:
-            Response with success (204), not found (404), or permission denied (403)
+            Response: JSON response with success or error message
         """
-        logger.info(f"=== READING PASSAGE DELETE METHOD CALLED for ID: {pk} ===")
-        
         try:
-            # Get organization_id from authenticated user
-            user_org_id = getattr(request, 'organization_id', None)
-            if not user_org_id:
-                logger.error("No organization_id found in authenticated user")
-                return Response(
-                    {'error': 'User organization not found'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Log the request for debugging
+            logger.info(f"Deleting passage: {passage_id} for organization: {request.organization_id}")
             
-            # Get the Reading Passage object from database
-            passage_obj = Passage.objects.get(pk=pk)
+            # Get organization ID from the authenticated user
+            organization_id = request.organization_id
             
-            # Check if user has permission to delete this passage (same organization)
-            if passage_obj.test.organization_id != str(user_org_id):
-                logger.error(f"Permission denied: User org {user_org_id} cannot delete passage org {passage_obj.test.organization_id}")
-                return Response(
-                    {'error': 'Permission denied'}, 
-                    status=status.HTTP_403_FORBIDDEN
-                )
+            # Convert to string for consistent comparison
+            organization_id = str(organization_id)
             
-            # Delete the object
-            passage_obj.delete()
-            logger.info(f"Reading Passage with ID {pk} deleted successfully")
-            return Response(status=status.HTTP_204_NO_CONTENT)
-                
-        except Passage.DoesNotExist:
-            logger.error(f"Reading Passage with ID {pk} not found")
-            return Response(
-                {'error': 'Reading Passage not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            logger.error(f"Error deleting Reading Passage: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def get(self, request):
-        """
-        Get all Reading Passage entries for the user's organization.
-        
-        This method:
-        1. Gets the organization_id from query parameters
-        2. Validates that the user has permission to view this organization's data
-        3. Retrieves all Reading Passage objects for the organization
-        4. Returns the serialized data
-        
-        Args:
-            request: HTTP request object with JWT token and organization_id query parameter
+            # Get the passage and verify test ownership
+            passage = get_object_or_404(Passage, passage_id=passage_id)
             
-        Returns:
-            Response with all Reading Passage data (200), bad request (400), or permission denied (403)
-        """
-        logger.info("=== READING PASSAGE GET METHOD CALLED ===")
-        
-        try:
-            # Get organization_id from authenticated user
-            user_org_id = getattr(request, 'organization_id', None)
-            if not user_org_id:
-                logger.error("No organization_id found in authenticated user")
-                return Response(
-                    {'error': 'User organization not found'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Check if the passage's test belongs to the user's organization
+            if passage.test.organization_id != organization_id:
+                logger.warning(f"Unauthorized delete attempt to passage {passage_id} by organization {organization_id}")
+                return Response({
+                    'message': 'Access denied'
+                }, status=status.HTTP_403_FORBIDDEN)
             
-            # Get organization_id from query parameters (for backward compatibility)
-            organization_id = request.query_params.get('organization_id')
-            if not organization_id:
-                # Auto-assign organization_id from authenticated user
-                organization_id = user_org_id
-                logger.info(f"Auto-assigned organization_id for GET: {user_org_id}")
-            else:
-                # Verify that client-sent organization_id matches authenticated user
-                if str(organization_id) != str(user_org_id):
-                    logger.error(f"Organization ID mismatch: Client sent {organization_id}, User has {user_org_id}")
-                    return Response(
-                        {'error': 'Organization ID does not match authenticated user'}, 
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+            # Store passage title for logging
+            passage_title = passage.title or f"Passage {passage.order}"
             
-            # Get all Reading Passage objects for the organization
-            passage_objects = Passage.objects.filter(test__organization_id=organization_id)
-            serializer = PassageSerializer(passage_objects, many=True)
+            # Use transaction to ensure data consistency
+            with transaction.atomic():
+                # Delete the passage (this will cascade to related question types and questions)
+                passage.delete()
             
-            logger.info(f"Retrieved {len(serializer.data)} Reading Passage objects for organization {organization_id}")
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            # Log successful deletion
+            logger.info(f"Successfully deleted passage: {passage_id} ({passage_title})")
+            
+            # Return success message
+            return Response({
+                'message': 'Passage deleted successfully',
+                'deleted_passage_id': passage_id
+            }, status=status.HTTP_200_OK)
                 
         except Exception as e:
-            logger.error(f"Error retrieving Reading Passage objects: {str(e)}")
-            return Response(
-                {'error': 'Internal server error'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            # Log unexpected errors
+            logger.error(f"Error deleting passage: {str(e)}")
+            return Response({
+                'message': 'Internal server error',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

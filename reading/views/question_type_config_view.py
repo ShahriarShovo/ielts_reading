@@ -220,7 +220,9 @@ class QuestionTypeConfigView(APIView):
             serializer = QuestionTypeConfigSerializer(config_objects, many=True)
             
             logger.info(f"Retrieved {len(serializer.data)} Question Type Config objects")
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response({
+                'question_type_configs': serializer.data
+            }, status=status.HTTP_200_OK)
                 
         except Exception as e:
             logger.error(f"Error retrieving Question Type Config objects: {str(e)}")

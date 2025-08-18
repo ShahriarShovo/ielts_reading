@@ -1,70 +1,103 @@
 from django.contrib import admin
-from .models import ReadingTest, Passage, Question, QuestionTypeConfig
+from .models import ReadingTest, Passage, Question, QuestionType, QuestionTypeConfig
 
 # Register your models here.
 
 @admin.register(ReadingTest)
 class ReadingTestAdmin(admin.ModelAdmin):
-    list_display = ['title', 'created_at']
-    search_fields = ['title']
-    list_filter = ['created_at']
+    list_display = ['test_name', 'source', 'organization_id', 'created_at']
+    search_fields = ['test_name', 'source']
+    list_filter = ['source', 'created_at']
+    readonly_fields = ['test_id', 'created_at', 'updated_at']
 
 @admin.register(Passage)
 class PassageAdmin(admin.ModelAdmin):
-    list_display = ['title', 'test', 'order']
-    list_filter = ['test']
-    search_fields = ['title', 'text']
+    list_display = ['title', 'test', 'order', 'get_question_type_count', 'get_total_question_count']
+    list_filter = ['test', 'order']
+    search_fields = ['title', 'text', 'test__test_name']
     ordering = ['test', 'order']
+    readonly_fields = ['passage_id']
+
+    def get_question_type_count(self, obj):
+        return obj.get_question_type_count()
+    get_question_type_count.short_description = 'Question Types'
+
+    def get_total_question_count(self, obj):
+        return obj.get_total_question_count()
+    get_total_question_count.short_description = 'Total Questions'
+
+@admin.register(QuestionType)
+class QuestionTypeAdmin(admin.ModelAdmin):
+    list_display = ['type', 'passage', 'order', 'expected_range', 'actual_count', 'get_question_count']
+    list_filter = ['type', 'passage__test', 'order']
+    search_fields = ['type', 'passage__title', 'instruction_template']
+    ordering = ['passage', 'order']
+    readonly_fields = ['question_type_id', 'get_processed_instruction', 'get_question_range']
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('passage', 'type', 'order', 'expected_range', 'actual_count')
+        }),
+        ('Instruction Template', {
+            'fields': ('instruction_template', 'get_processed_instruction'),
+            'description': 'Use placeholders: {start}, {end}, {passage_number}'
+        }),
+        ('Questions Data', {
+            'fields': ('questions_data', 'get_question_range'),
+            'description': 'JSON array of individual questions'
+        }),
+    )
+
+    def get_question_count(self, obj):
+        return len(obj.questions_data) if obj.questions_data else 0
+    get_question_count.short_description = 'Questions'
+
+    def get_processed_instruction(self, obj):
+        return obj.get_processed_instruction()
+    get_processed_instruction.short_description = 'Processed Instruction'
+
+    def get_question_range(self, obj):
+        start, end = obj.get_question_range()
+        return f"{start}-{end}"
+    get_question_range.short_description = 'Question Range'
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    # Updated list_display to use order_number instead of order
-    list_display = ['question_text', 'passage', 'question_type', 'points', 'order_number', 'question_range']
-    list_filter = ['question_type', 'passage__test']
-    search_fields = ['question_text', 'passage__title']
-    # Updated ordering to use order_number instead of order
-    ordering = ['passage', 'order_number']
-    
-    # Updated fieldsets to include new IELTS instruction system fields
+    list_display = ['question_text', 'question_type', 'number', 'answer', 'points', 'get_full_question_number']
+    list_filter = ['question_type__type', 'question_type__passage__test']
+    search_fields = ['question_text', 'question_type__type', 'answer']
+    ordering = ['question_type', 'number']
+    readonly_fields = ['question_id', 'created_at', 'updated_at', 'get_full_question_number']
+
     fieldsets = (
         ('Basic Information', {
-            'fields': ('passage', 'question_text', 'question_type', 'custom_question_type', 'order_number')
+            'fields': ('question_type', 'question_text', 'number', 'answer', 'points')
         }),
-        ('IELTS Instruction System', {
-            'fields': ('question_range', 'instruction', 'answer_format'),
-            'classes': ('collapse',),
-            'description': 'IELTS-standard instruction and answer format fields'
+        ('Options & Configuration', {
+            'fields': ('options', 'word_limit'),
+            'description': 'Options for MCQ questions, word limit for completion questions'
         }),
-        ('Answer Configuration', {
-            'fields': ('options', 'correct_answer', 'correct_answers', 'points', 'word_limit')
+        ('Additional Information', {
+            'fields': ('explanation', 'image'),
+            'classes': ('collapse',)
         }),
-        ('Additional Data', {
-            'fields': ('data', 'explanation', 'image'),
+        ('System Information', {
+            'fields': ('get_full_question_number', 'created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
-    
-    # Add readonly fields for auto-calculated values
-    readonly_fields = ['question_range']
-    
-    # Add help text for the new fields
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        form.base_fields['question_range'].help_text = "Auto-calculated range like 'Questions 1-7'"
-        form.base_fields['instruction'].help_text = "IELTS instruction text for this question type"
-        form.base_fields['answer_format'].help_text = "Format instructions for how to answer"
-        form.base_fields['order_number'].help_text = "Sequential order across all question types (1,2,3,4,5...)"
-        return form
+
+    def get_full_question_number(self, obj):
+        return obj.get_full_question_number()
+    get_full_question_number.short_description = 'Full Question Number'
 
 @admin.register(QuestionTypeConfig)
 class QuestionTypeConfigAdmin(admin.ModelAdmin):
-    # Updated list_display to include new template fields
     list_display = ['type_code', 'display_name', 'is_active', 'requires_options', 'requires_word_limit']
     list_filter = ['is_active', 'requires_options', 'requires_multiple_answers', 'requires_word_limit', 'requires_image']
     search_fields = ['type_code', 'display_name', 'description']
     ordering = ['display_name']
     
-    # Updated fieldsets to include new template fields
     fieldsets = (
         ('Basic Configuration', {
             'fields': ('type_code', 'display_name', 'description', 'is_active')
@@ -80,7 +113,6 @@ class QuestionTypeConfigAdmin(admin.ModelAdmin):
         }),
     )
     
-    # Add help text for the new fields
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         form.base_fields['default_instruction'].help_text = "Default IELTS instruction text with {question_range} placeholder"

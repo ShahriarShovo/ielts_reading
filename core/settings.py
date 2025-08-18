@@ -177,30 +177,3 @@ LOGGING = {
         },
     },
 }
-
-
-
-
-
-# CROSS_PROJECT_API_KEY = 'your-secret-api-key-here-12345'
-
-# LOGGING = {
-#     'version': 1,
-#     'disable_existing_loggers': False,
-#     'handlers': {
-#         'console': {
-#             'class': 'logging.StreamHandler',
-#         },
-#     },
-#     'root': {
-#         'handlers': ['console'],
-#         'level': 'INFO',
-#     },
-#     'loggers': {
-#         'writing': {
-#             'handlers': ['console'],
-#             'level': 'INFO',
-#             'propagate': False,
-#         },
-#     },
-# }

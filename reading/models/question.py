@@ -1,172 +1,207 @@
 from django.db import models
+import uuid
 from .passage import Passage
+from .question_type import QuestionType
 
 class Question(models.Model):
     """
-    Model representing a question within a reading passage.
+    Model representing an individual question within a question type.
     
-    This is the bottom-level model in the 3-level hierarchy: Test -> Passage -> Question.
-    Each question belongs to a specific passage and tests students' understanding of the passage.
+    This is the bottom-level model in the 4-level hierarchy: Test -> Passage -> Question Type -> Individual Questions.
+    Each individual question belongs to a specific question type and contains the actual question content.
+    
+    Note: In the new hierarchical structure, individual questions are primarily stored as JSON data
+    within the QuestionType model. This model serves as a helper for complex querying and
+    individual question management when needed.
     
     Key Features:
+    - Unique question identifier for easy reference
+    - Belongs to a specific question type
+    - Contains individual question content (text, options, answer)
     - Supports all standard IELTS Reading question types
+    - UUID-based primary key for security and scalability
     - Flexible data storage for different question formats
-    - Organization-based data isolation
-    - Word limit enforcement for completion questions
-    - Support for images and diagrams
-    - Multiple correct answers support
-    - IELTS-standard instruction system with dynamic question ranges
-    - Sequential ordering across all question types (1,2,3,4,5...)
     """
     
-    # Question Types - Common IELTS types + flexibility for future
-    # These choices define the available question types in the system
-    QUESTION_TYPE_CHOICES = [
-        # Common IELTS Reading Question Types
-        ('MC', 'Multiple Choice'),           # Choose from multiple options
-        ('TFNG', 'True/False/Not Given'),    # Determine if statement is True, False, or Not Given
-        ('YNN', 'Yes/No/Not Given'),         # Determine if statement is Yes, No, or Not Given
-        ('MH', 'Matching Headings'),         # Match paragraph headings to paragraphs
-        ('MP', 'Matching Paragraphs'),       # Match information to paragraphs
-        ('MF', 'Matching Features'),         # Match features or characteristics
-        ('MSE', 'Matching Sentence Endings'), # Complete sentences by matching endings
-        ('SC', 'Sentence Completion'),       # Complete sentences with missing words
-        ('SUMC', 'Summary Completion'),      # Complete summary with missing words
-        ('NC', 'Note Completion'),           # Complete notes with missing information
-        ('TC', 'Table Completion'),          # Complete table with missing data
-        ('FCC', 'Flow Chart Completion'),    # Complete flow chart with missing steps
-        ('DL', 'Diagram Labelling'),         # Label parts of a diagram
-        ('SA', 'Short Answer'),              # Answer questions with short responses
-        ('PFL', 'Pick from List'),           # Choose answer from provided list
-        # Custom/Future types - use this for new question types
-        ('CUSTOM', 'Custom Question Type'),  # For future extensibility
-    ]
+    # Unique identifier for the individual question - using UUID for security and scalability
+    # This replaces the auto-incrementing ID and provides a more secure identifier
+    question_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
-    # Links this question to a specific organization for data isolation
-    organization_id = models.CharField(max_length=100)
-    
-    # Foreign key relationship to the parent passage
-    # CASCADE delete means if the passage is deleted, all its questions are also deleted
-    passage = models.ForeignKey(Passage, on_delete=models.CASCADE, related_name='questions')
+    # Foreign key relationship to the parent question type
+    # CASCADE delete means if the question type is deleted, all its individual questions are also deleted
+    # This maintains referential integrity in the database
+    question_type = models.ForeignKey(QuestionType, on_delete=models.CASCADE, related_name='individual_questions')
     
     # The actual question text that students will see
+    # This is the specific question content (e.g., "Where was coffee first discovered?")
     question_text = models.TextField()
     
-    # Question type handling
-    question_type = models.CharField(max_length=10, choices=QUESTION_TYPE_CHOICES, default='MC')
-    custom_question_type = models.CharField(max_length=50, blank=True)  # For future/new question types
+    # Question number within the question type (1, 2, 3, etc.)
+    # This determines the order of questions within a specific question type
+    number = models.PositiveIntegerField()
     
-    # NEW FIELDS FOR IELTS INSTRUCTION SYSTEM
-    # Question range display (e.g., "Questions 1-7", "Questions 8-13")
-    # This will be auto-calculated based on question count and order
-    question_range = models.CharField(max_length=50, blank=True, help_text="Auto-calculated range like 'Questions 1-7'")
+    # The correct answer for this question
+    # This can be a string (e.g., "True", "B", "Ethiopia") or a list for multiple answers
+    answer = models.CharField(max_length=255)
     
-    # IELTS-standard instruction text (e.g., "Do the following statements agree with the information given in Reading Passage 1?")
-    instruction = models.TextField(blank=True, help_text="IELTS instruction text for this question type")
+    # Options for multiple choice questions (stored as JSON)
+    # This field is used for MCQ, matching, and other question types that require options
+    # Example: ["A. Brazil", "B. Ethiopia", "C. Yemen", "D. India"]
+    options = models.JSONField(default=list, blank=True)
     
-    # Answer format instructions (e.g., "In boxes 1-7 on your answer sheet, write TRUE/FALSE/NOT GIVEN...")
-    answer_format = models.TextField(blank=True, help_text="Format instructions for how to answer")
+    # Word limit for completion questions
+    # This specifies how many words students can use in their answer
+    word_limit = models.PositiveIntegerField(default=1, blank=True, null=True)
     
-    # Sequential order number across all question types (1, 2, 3, 4, 5...)
-    # This replaces the old 'order' field for better sequential management
-    order_number = models.PositiveIntegerField(default=1, help_text="Sequential order across all question types")
+    # Points awarded for correct answer
+    # This allows for different weighting of questions
+    points = models.PositiveIntegerField(default=1)
     
-    # Flexible data storage for all question types
-    # This JSON field can store any additional data needed for specific question types
-    data = models.JSONField(default=dict)  # All flexible data here: options, correct_answer, extra (e.g., diagram metadata)
+    # Optional explanation for the answer
+    # This can be used to explain why an answer is correct
+    explanation = models.TextField(blank=True)
     
-    # Additional structured fields for common types
-    options = models.JSONField(default=list, blank=True)  # For multiple choice, matching, etc.
-    correct_answer = models.CharField(max_length=255, blank=True)  # For single answer questions
-    correct_answers = models.JSONField(default=list, blank=True)  # For multiple correct answers
+    # Optional image for diagram-based questions
+    # This field stores the path to an image file for questions that require visual content
+    image = models.ImageField(upload_to='questions/', null=True, blank=True)
     
-    # Question metadata
-    points = models.PositiveIntegerField(default=1)  # Points awarded for correct answer
-    word_limit = models.PositiveIntegerField(default=3, blank=True, null=True)  # For completion questions
-    explanation = models.TextField(blank=True)  # Optional explanation for the answer
-    image = models.ImageField(upload_to='questions/', null=True, blank=True)  # Optional for diagram-based questions
+    # Timestamp when this question was created
+    created_at = models.DateTimeField(auto_now_add=True)
     
-    # DEPRECATED: Replaced by order_number for better sequential management
-    # order = models.PositiveIntegerField(default=1)  # Order within the passage
-    
-    created_at = models.DateTimeField(auto_now_add=True)  # When question was created
-    updated_at = models.DateTimeField(auto_now=True)  # When question was last updated
-    
+    # Timestamp when this question was last updated
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
-        ordering = ['order_number']  # Order questions by their sequential number across all types
+        """
+        Meta configuration for the Question model.
+        
+        - ordering: Questions are ordered by their number within the question type
+        - db_table: Custom table name for database organization
+        - verbose_name: Human-readable name for admin panel
+        - unique_together: Ensures question numbers are unique within a question type
+        """
+        ordering = ['number']  # Order questions by their number within the question type
+        db_table = 'reading_question'
+        verbose_name = 'Individual Question'
+        verbose_name_plural = 'Individual Questions'
+        unique_together = ['question_type', 'number']  # Ensure unique question numbers within a type
 
     def __str__(self):
-        """String representation for admin panel and debugging"""
-        return f"Question {self.order_number} for {self.passage.title}: {self.question_text[:50]}"
-    
-    def get_question_type_display(self):
         """
-        Return the display name for question type, handling custom types.
+        String representation for admin panel, debugging, and logging.
+        
+        Returns a human-readable string that includes the question number,
+        question type, and a preview of the question text.
+        """
+        question_preview = self.question_text[:50] + "..." if len(self.question_text) > 50 else self.question_text
+        return f"Question {self.number} ({self.question_type.type}): {question_preview}"
+    
+    def get_full_question_number(self):
+        """
+        Get the full question number within the entire test.
+        
+        This method calculates the absolute question number across all passages
+        and question types in the test.
         
         Returns:
-            str: Human-readable name for the question type
+            int: The absolute question number in the test
         """
-        if self.question_type == 'CUSTOM':
-            return self.custom_question_type or 'Custom Question Type'
-        return dict(self.QUESTION_TYPE_CHOICES).get(self.question_type, self.question_type)
-    
-    def calculate_question_range(self):
-        """
-        Calculate the question range for this question type group.
+        # Get the question range for this question type
+        start_number, _ = self.question_type.get_question_range()
         
-        This method calculates the range (e.g., "Questions 1-7") based on:
-        1. The order_number of this question
-        2. How many questions of the same type exist before this one
-        3. The total count of questions of this type
+        # Calculate the position within this question type
+        position_in_type = self.number - 1
+        
+        # Return the absolute question number
+        return start_number + position_in_type
+    
+    def to_json_format(self):
+        """
+        Convert this question to the JSON format used in QuestionType.questions_data.
+        
+        This method creates a dictionary representation that matches the structure
+        used in the QuestionType model's JSON field.
         
         Returns:
-            str: Question range like "Questions 1-7" or "Questions 8-13"
+            dict: Question data in JSON format
         """
-        # Get all questions of the same type in the same passage, ordered by order_number
-        same_type_questions = Question.objects.filter(
-            passage=self.passage,
-            question_type=self.question_type
-        ).order_by('order_number')
+        question_data = {
+            'number': self.number,
+            'text': self.question_text,
+            'answer': self.answer
+        }
         
-        # Find the position of this question within its type group
-        question_positions = list(same_type_questions.values_list('order_number', flat=True))
+        # Add options if they exist
+        if self.options:
+            question_data['options'] = self.options
         
-        if not question_positions:
-            return f"Questions {self.order_number}-{self.order_number}"
+        # Add word limit if specified
+        if self.word_limit:
+            question_data['word_limit'] = self.word_limit
         
-        # Find the first and last question numbers for this type
-        first_question = min(question_positions)
-        last_question = max(question_positions)
+        # Add points if different from default
+        if self.points != 1:
+            question_data['points'] = self.points
         
-        return f"Questions {first_question}-{last_question}"
+        # Add explanation if provided
+        if self.explanation:
+            question_data['explanation'] = self.explanation
+        
+        return question_data
     
-    def update_question_range(self):
+    @classmethod
+    def from_json_format(cls, question_type, question_data):
         """
-        Update the question_range field for this question.
+        Create a Question instance from JSON format data.
         
-        This method calculates and saves the question range based on the current
-        question distribution in the passage.
+        This class method creates a Question object from the JSON data structure
+        used in QuestionType.questions_data.
+        
+        Args:
+            question_type (QuestionType): The parent question type
+            question_data (dict): Question data in JSON format
+            
+        Returns:
+            Question: New Question instance
         """
-        self.question_range = self.calculate_question_range()
-        self.save(update_fields=['question_range'])
+        return cls(
+            question_type=question_type,
+            question_text=question_data.get('text', ''),
+            number=question_data.get('number', 1),
+            answer=question_data.get('answer', ''),
+            options=question_data.get('options', []),
+            word_limit=question_data.get('word_limit', 1),
+            points=question_data.get('points', 1),
+            explanation=question_data.get('explanation', '')
+        )
     
-    def save(self, *args, **kwargs):
+    def validate_answer_format(self):
         """
-        Auto-populate custom_question_type if using CUSTOM type.
-        Auto-calculate question range if not provided.
+        Validate that the answer format matches the question type requirements.
         
-        This method is called before saving the question to the database.
-        It ensures that custom question types have a proper name and
-        question ranges are calculated automatically.
+        This method checks if the answer format is appropriate for the question type.
+        For example, MCQ questions should have answers that match one of the options.
+        
+        Returns:
+            bool: True if answer format is valid, False otherwise
         """
-        if self.question_type == 'CUSTOM' and not self.custom_question_type:
-            # You might want to raise an error here or set a default
-            pass
+        question_type = self.question_type.type.lower()
         
-        # Auto-calculate question range if not provided
-        if not self.question_range:
-            # We'll calculate it after saving to ensure we have the order_number
-            super().save(*args, **kwargs)
-            self.update_question_range()
-        else:
-            super().save(*args, **kwargs)
+        # Validate MCQ answers
+        if 'multiple choice' in question_type or 'mcq' in question_type:
+            if self.options and self.answer not in [opt.split('. ')[1] if '. ' in opt else opt for opt in self.options]:
+                return False
+        
+        # Validate True/False/Not Given answers
+        elif 'true/false' in question_type or 'tfng' in question_type:
+            valid_answers = ['true', 'false', 'not given']
+            if self.answer.lower() not in valid_answers:
+                return False
+        
+        # Validate Yes/No/Not Given answers
+        elif 'yes/no' in question_type or 'ynn' in question_type:
+            valid_answers = ['yes', 'no', 'not given']
+            if self.answer.lower() not in valid_answers:
+                return False
+        
+        return True
