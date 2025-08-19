@@ -33,10 +33,10 @@ class Passage(models.Model):
     # This helps identify the passage content (e.g., "The History of Coffee")
     title = models.CharField(max_length=255, blank=True, null=True)
     
-    # IELTS-style instruction text for students
+    # IELTS-style instruction text for students (optional - instructions come from question types)
     # This tells students how much time to spend and which questions to answer
     # Example: "You should spend about 20 minutes on Questions 1-13, which are based on Reading Passage 1 below."
-    instruction = models.TextField()
+    instruction = models.TextField(blank=True, null=True)
     
     # The actual reading text content that students will read
     # This is the main content that students need to read and understand
