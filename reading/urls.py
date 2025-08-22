@@ -15,6 +15,8 @@ from .views import (
     TemplateInfoView,
 )
 
+from .views.create_exam import RandomQuestionsView
+
 app_name = 'reading'
 
 urlpatterns = [
@@ -51,4 +53,8 @@ urlpatterns = [
     # Template Application
     path('templates/apply/', TemplateApplicationView.as_view(), name='api_templates_apply'),
     path('templates/info/', TemplateInfoView.as_view(), name='api_templates_info'),
+    
+    
+    
+    path('random-questions/', RandomQuestionsView.as_view(), name='random-questions'),
 ]
