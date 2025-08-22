@@ -57,7 +57,7 @@ class Passage(models.Model):
     paragraph_labels = models.CharField(max_length=50, blank=True, help_text="Paragraph labels (e.g., 'A-G' or '1-7')")
 
     # Organization and timestamps for security and tracking
-    organization_id = models.PositiveIntegerField(null=True, blank=True)
+    organization_id = models.CharField(max_length=100, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 

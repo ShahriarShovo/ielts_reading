@@ -48,6 +48,7 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
             'actual_count',          # Actual number of questions present
             'questions_data',        # Individual questions data stored as JSON
             'order',                 # Order of this question type within the passage
+            'image',                 # Image field for diagram labeling questions
             'processed_instruction', # Processed instruction with placeholders replaced
             'question_range',        # Calculated question range for this type
             'question_count',        # Number of questions in this type
@@ -195,23 +196,30 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
         if len(value) > 20:
             raise serializers.ValidationError("Expected range cannot exceed 20 characters.")
         
-        # Check format (should be like "1-7" or "14-20")
-        if '-' not in value:
-            raise serializers.ValidationError("Expected range must be in format 'start-end' (e.g., '1-7').")
-        
-        try:
-            start, end = value.split('-')
-            start_num = int(start.strip())
-            end_num = int(end.strip())
-            
-            if start_num <= 0 or end_num <= 0:
-                raise serializers.ValidationError("Range numbers must be positive integers.")
-            
-            if start_num >= end_num:
-                raise serializers.ValidationError("Start number must be less than end number.")
+        # Check format (should be like "1", "1-7", or "14-20")
+        if '-' in value:
+            # Range format (e.g., "1-7")
+            try:
+                start, end = value.split('-')
+                start_num = int(start.strip())
+                end_num = int(end.strip())
                 
-        except ValueError:
-            raise serializers.ValidationError("Expected range must contain valid numbers.")
+                if start_num <= 0 or end_num <= 0:
+                    raise serializers.ValidationError("Range numbers must be positive integers.")
+                
+                if start_num >= end_num:
+                    raise serializers.ValidationError("Start number must be less than end number.")
+                    
+            except ValueError:
+                raise serializers.ValidationError("Expected range must contain valid numbers.")
+        else:
+            # Single number format (e.g., "1")
+            try:
+                single_num = int(value.strip())
+                if single_num <= 0:
+                    raise serializers.ValidationError("Number must be a positive integer.")
+            except ValueError:
+                raise serializers.ValidationError("Expected range must contain valid numbers.")
         
         return value.strip()
     

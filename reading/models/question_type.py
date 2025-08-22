@@ -54,6 +54,11 @@ class QuestionType(models.Model):
     # Order of this question type within the passage
     # This determines the sequence in which question types appear in the passage
     order = models.PositiveIntegerField(default=1)
+    
+    # Image field for diagram labeling questions
+    # This stores the diagram image for question types that require visual content
+    # Images are stored in media/diagrams/ folder
+    image = models.ImageField(upload_to='diagrams/', null=True, blank=True)
 
     class Meta:
         """
