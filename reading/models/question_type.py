@@ -40,7 +40,13 @@ class QuestionType(models.Model):
     
     # Expected range of questions (e.g., "1-7", "14-20")
     # This is the planned range, but actual count may differ
+    # This is for examiner to understand how many questions to create
     expected_range = models.CharField(max_length=20)
+    
+    # Student question range - global sequential numbering across all passages
+    # This is calculated automatically and shows the actual question numbers for students
+    # Example: "1-7", "8-11", "12-15" etc.
+    student_range = models.CharField(max_length=20, blank=True, null=True)
     
     # Actual number of questions present in this question type
     # This allows flexibility - examiner can have 3, 4, 5, 6, or 7 questions for same type
@@ -108,7 +114,7 @@ class QuestionType(models.Model):
     
     def get_question_range(self):
         """
-        Calculate the start and end question numbers for this question type.
+        Calculate the start and end question numbers for this question type within the passage.
         
         This method determines the actual question numbers based on the order
         of question types within the passage and the number of questions in each type.
@@ -130,6 +136,61 @@ class QuestionType(models.Model):
         end_number = start_number + self.actual_count - 1
         
         return (start_number, end_number)
+    
+    def get_student_question_range(self):
+        """
+        Calculate the global sequential question numbers for students across all passages.
+        
+        This method determines the actual question numbers that students will see,
+        considering all passages and question types in the test.
+        
+        Returns a tuple of (start_number, end_number) for student display.
+        """
+        # Get the test that this passage belongs to
+        test = self.passage.test
+        
+        # Get all passages in order up to this one
+        previous_passages = Passage.objects.filter(
+            test=test,
+            order__lt=self.passage.order
+        ).order_by('order')
+        
+        # Calculate total questions from previous passages
+        total_previous_questions = 0
+        for prev_passage in previous_passages:
+            passage_question_types = QuestionType.objects.filter(passage=prev_passage).order_by('order')
+            for question_type in passage_question_types:
+                total_previous_questions += question_type.actual_count
+        
+        # Get all question types in this passage up to this one
+        previous_question_types_in_passage = QuestionType.objects.filter(
+            passage=self.passage,
+            order__lt=self.order
+        ).order_by('order')
+        
+        # Calculate questions from previous question types in this passage
+        questions_in_this_passage = 0
+        for prev_question_type in previous_question_types_in_passage:
+            questions_in_this_passage += prev_question_type.actual_count
+        
+        # Calculate start number for this question type
+        start_number = total_previous_questions + questions_in_this_passage + 1
+        
+        # Calculate end number
+        end_number = start_number + self.actual_count - 1
+        
+        return (start_number, end_number)
+    
+    def update_student_range(self):
+        """
+        Update the student_range field with the calculated global question range.
+        
+        This method should be called whenever questions are added/removed or
+        when the order of question types changes.
+        """
+        start_number, end_number = self.get_student_question_range()
+        self.student_range = f"{start_number}-{end_number}"
+        self.save(update_fields=['student_range'])
     
     def add_question(self, question_text, answer, options=None, number=None):
         """
@@ -165,6 +226,9 @@ class QuestionType(models.Model):
         # Update actual count
         self.actual_count = len(self.questions_data)
         self.save()
+        
+        # Update student range after adding question
+        self.update_student_range()
     
     def remove_question(self, question_number):
         """
@@ -182,6 +246,9 @@ class QuestionType(models.Model):
         # Update actual count
         self.actual_count = len(self.questions_data)
         self.save()
+        
+        # Update student range after removing question
+        self.update_student_range()
     
     def update_question(self, question_number, question_text=None, answer=None, options=None):
         """
@@ -218,6 +285,9 @@ class QuestionType(models.Model):
             question['number'] = i
         
         self.save()
+        
+        # Update student range after reordering
+        self.update_student_range()
     
     def can_add_questions(self, additional_questions=1):
         """

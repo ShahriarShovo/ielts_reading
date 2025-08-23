@@ -146,21 +146,21 @@ class PassageSerializer(serializers.ModelSerializer):
         """
         Validate the instruction field.
         
-        This method ensures that the instruction is not empty and has a reasonable length.
-        It also checks for any invalid characters or formatting.
+        This method ensures that the instruction has a reasonable length if provided.
+        Since instruction is optional, empty values are allowed.
         
         Args:
             value (str): The instruction value to validate
             
         Returns:
-            str: The validated instruction
+            str: The validated instruction (or None if empty)
             
         Raises:
             serializers.ValidationError: If validation fails
         """
-        # Check if instruction is not empty
-        if not value or not value.strip():
-            raise serializers.ValidationError("Instruction cannot be empty.")
+        # Instruction is optional, so None or empty string is valid
+        if value is None or value == '':
+            return None
         
         # Check if instruction is not too long
         if len(value) > 1000:

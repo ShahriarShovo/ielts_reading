@@ -15,6 +15,8 @@ from .views import (
     TemplateInfoView,
 )
 
+from .views.test_answers import get_test_answers
+
 from .views.create_exam import RandomQuestionsView
 
 app_name = 'reading'
@@ -57,4 +59,7 @@ urlpatterns = [
     
     
     path('random-questions/', RandomQuestionsView.as_view(), name='random-questions'),
+    
+    # Test Answers API (for Academiq integration)
+    path('test-answers/<uuid:test_id>/', get_test_answers, name='test-answers'),
 ]
