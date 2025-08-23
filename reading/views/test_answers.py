@@ -3,7 +3,7 @@
 # Used by Academiq to compare student answers with teacher's correct answers
 
 import logging
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework import status
 from reading.models import ReadingTest, Passage, QuestionType
@@ -12,7 +12,8 @@ from reading.permissions import SharedAuthPermission
 logger = logging.getLogger('reading')
 
 @api_view(['GET'])
-@permission_classes([])  # Temporarily disable authentication for testing
+@authentication_classes([])  # Disable default JWT authentication since we use custom permission
+@permission_classes([SharedAuthPermission])  # Enable authentication for production
 def get_test_answers(request, test_id):
     """
     Get correct answers for a specific reading test.

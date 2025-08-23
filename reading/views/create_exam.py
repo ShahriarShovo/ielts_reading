@@ -22,8 +22,7 @@ class RandomQuestionsView(APIView):
     2. Validates permission using SharedAuthPermission
     3. Returns random reading tests with passages and questions for the given organization
     """
-    # permission_classes = [SharedAuthPermission]  # Temporarily disabled for testing
-    permission_classes = []  # Temporarily disabled for testing
+    permission_classes = [SharedAuthPermission]  # Enable authentication for production
     authentication_classes = []  # Disable default JWT authentication since we use custom permission
 
     def get(self, request):
@@ -47,11 +46,10 @@ class RandomQuestionsView(APIView):
                 return Response({'error': 'Organization ID is required'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Check if user has permission to view this organization's data
-            # TEMPORARILY DISABLED FOR TESTING
-            # user_org_id = getattr(request, 'organization_id', None)
-            # if str(user_org_id) != organization_id:
-            #     logger.error(f"Permission denied: User org {user_org_id} cannot view org {organization_id}")
-            #     return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+            user_org_id = getattr(request, 'organization_id', None)
+            if str(user_org_id) != organization_id:
+                logger.error(f"Permission denied: User org {user_org_id} cannot view org {organization_id}")
+                return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
 
             # NEW: Get count from query params (default = 1)
             count = request.query_params.get('count', 1)
