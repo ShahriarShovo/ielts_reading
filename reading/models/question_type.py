@@ -33,6 +33,9 @@ class QuestionType(models.Model):
     # This identifies the specific IELTS question type
     type = models.CharField(max_length=100)
     
+    # Add this field after the existing fields in QuestionType model
+    title = models.CharField(max_length=255, blank=True, null=True, help_text="Title for note completion questions (e.g., 'Notes about Climate Change')")
+    
     # Instruction template with placeholders for dynamic content
     # This template contains placeholders like {start}, {end}, {passage_number} that get replaced
     # Example: "Questions {start}-{end}\nDo the following statements agree with the information given in Reading Passage {passage_number}?"

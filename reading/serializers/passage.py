@@ -42,6 +42,7 @@ class PassageSerializer(serializers.ModelSerializer):
             'passage_id',        # Unique identifier for the passage
             'test',              # Foreign key to the parent test
             'title',             # Human-readable title for the passage (optional)
+            'subtitle',          # Subtitle for the passage (optional)
             'instruction',       # IELTS-style instruction text for students
             'text',              # The actual reading text content
             'order',             # Order of this passage within the test
@@ -347,7 +348,12 @@ class PassageSerializer(serializers.ModelSerializer):
             if '-' not in value:
                 raise serializers.ValidationError("Paragraph labels must be in format 'A-G' or '1-7'.")
             
-            start, end = value.split('-')
+            # start, end = value.split('-')
+            parts = value.split('-')
+            if len(parts) != 2:
+                raise serializers.ValidationError("Paragraph labels must be in format 'A-G' or '1-7' with exactly one dash.")
+            start, end = parts[0], parts[1]
+            
             if not (start.isalpha() and end.isalpha()) and not (start.isdigit() and end.isdigit()):
                 raise serializers.ValidationError("Paragraph labels must be either alphabetic (A-G) or numeric (1-7).")
         
@@ -385,7 +391,11 @@ class PassageSerializer(serializers.ModelSerializer):
         # If paragraph_labels is provided, validate it matches paragraph_count
         if paragraph_labels and paragraph_count:
             if '-' in paragraph_labels:
-                start, end = paragraph_labels.split('-')
+                parts = paragraph_labels.split('-')
+                if len(parts) != 2:
+                    raise serializers.ValidationError("Paragraph labels must be in format 'A-G' or '1-7' with exactly one dash.")
+                start, end = parts[0], parts[1]
+                
                 if start.isalpha() and end.isalpha():
                     # For alphabetic labels (A-G)
                     start_ord = ord(start.upper())

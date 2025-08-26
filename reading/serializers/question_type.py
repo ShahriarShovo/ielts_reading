@@ -22,6 +22,7 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
             'question_type_id',
             'passage',
             'type',
+            'title',
             'instruction_template',
             'expected_range',
             'student_range',

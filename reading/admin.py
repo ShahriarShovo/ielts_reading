@@ -12,11 +12,25 @@ class ReadingTestAdmin(admin.ModelAdmin):
 
 @admin.register(Passage)
 class PassageAdmin(admin.ModelAdmin):
-    list_display = ['title', 'test', 'order', 'get_question_type_count', 'get_total_question_count']
+    list_display = ['title', 'subtitle', 'test', 'order', 'get_question_type_count', 'get_total_question_count']
     list_filter = ['test', 'order']
-    search_fields = ['title', 'text', 'test__test_name']
+    search_fields = ['title', 'subtitle', 'text', 'test__test_name']
     ordering = ['test', 'order']
     readonly_fields = ['passage_id']
+    
+    # ADD THIS FIELDSETS SECTION:
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('test', 'title', 'subtitle', 'order')
+        }),
+        ('Content', {
+            'fields': ('text', 'instruction')
+        }),
+        ('Paragraph Structure', {
+            'fields': ('has_paragraphs', 'paragraph_count', 'paragraph_labels'),
+            'classes': ('collapse',)
+        }),
+    )
 
     def get_question_type_count(self, obj):
         return obj.get_question_type_count()
@@ -36,7 +50,7 @@ class QuestionTypeAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('passage', 'type', 'order', 'expected_range', 'actual_count')
+            'fields': ('passage', 'type', 'title', 'order', 'expected_range', 'actual_count')
         }),
         ('Instruction Template', {
             'fields': ('instruction_template', 'get_processed_instruction'),
