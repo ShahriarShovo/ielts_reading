@@ -37,16 +37,22 @@ class RandomQuestionsView(APIView):
             Response with random reading tests including passages and questions
         """
         logger.info("=== RANDOM QUESTIONS GET METHOD CALLED ===")
+        logger.info(f"Request user_id: {getattr(request, 'user_id', 'Not set')}")
+        logger.info(f"Request organization_id: {getattr(request, 'organization_id', 'Not set')}")
+        logger.info(f"Query params: {request.query_params}")
 
         try:
             # Get organization_id from query parameters
             organization_id = request.query_params.get('organization_id')
+            logger.info(f"Organization ID from query params: {organization_id}")
             if not organization_id:
                 logger.error("Organization ID not provided in query parameters")
                 return Response({'error': 'Organization ID is required'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Check if user has permission to view this organization's data
             user_org_id = getattr(request, 'organization_id', None)
+            logger.info(f"User org ID: {user_org_id}, Requested org ID: {organization_id}")
+            logger.info(f"Permission check: {str(user_org_id)} != {organization_id} = {str(user_org_id) != organization_id}")
             if str(user_org_id) != organization_id:
                 logger.error(f"Permission denied: User org {user_org_id} cannot view org {organization_id}")
                 return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)

@@ -66,14 +66,19 @@ class SharedAuthPermission(BasePermission):
             auth_service_url = 'http://127.0.0.1:8000/api/user/auth/verify-token/'
             logger.info(f"Calling auth service at: {auth_service_url}")
             
-            logger.info(f"Sending request to auth service...")
+            logger.info(f"Sending request to auth service with token: {token[:20]}...")
             # Make HTTP POST request to authentication project
-            response = requests.post(
-                auth_service_url,
-                json={'token': token},
-                headers={'Content-Type': 'application/json'},
-                timeout=10  # 10 second timeout to prevent hanging
-            )
+            try:
+                response = requests.post(
+                    auth_service_url,
+                    json={'token': token},
+                    headers={'Content-Type': 'application/json'},
+                    timeout=10  # 10 second timeout to prevent hanging
+                )
+                logger.info(f"Auth service response received: {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Request to auth service failed: {str(e)}")
+                return False
             
             logger.info(f"Auth service response status: {response.status_code}")
             logger.info(f"Auth service response: {response.text}")
