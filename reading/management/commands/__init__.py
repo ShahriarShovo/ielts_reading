@@ -1,1 +1,5 @@
-# Commands package for reading app
+# =============================================================================
+# MANAGEMENT COMMANDS PACKAGE
+# =============================================================================
+# This package contains Django management commands for the reading app.
+# =============================================================================

@@ -82,4 +82,102 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
         
         Returns how many more questions can be added to this question type.
         """
-        return obj.get_remaining_question_slots()
+        return obj.get_remaining_question_slots() 
+    
+    def validate_questions_data(self, value):
+        """
+        Validate and process questions_data field.
+        Ensures options are properly formatted and converts answer to correct_answer.
+        """
+        if not isinstance(value, list):
+            raise serializers.ValidationError("questions_data must be a list")
+        
+        processed_questions = []
+        for i, question in enumerate(value):
+            if not isinstance(question, dict):
+                raise serializers.ValidationError(f"Question {i+1} must be a dictionary")
+            
+            # Ensure required fields exist - handle different field names for different question types
+            if 'question_text' in question:
+                # Standard format - already has question_text
+                pass
+            elif 'text' in question:
+                # Note Completion format - convert text to question_text
+                question['question_text'] = question.pop('text')
+            else:
+                raise serializers.ValidationError(f"Question {i+1} missing required field: question_text or text")
+            
+            # Handle answer fields - support both old format (answer/answers) and new format (correct_answer)
+            if 'correct_answer' in question:
+                # New format - already using correct_answer
+                pass
+            elif 'answer' in question:
+                # Old format - convert to correct_answer
+                question['correct_answer'] = question.pop('answer')
+            elif 'answers' in question:
+                # Old format - convert to correct_answer
+                question['correct_answer'] = question.pop('answers')
+            else:
+                raise serializers.ValidationError(f"Question {i+1} missing answer/answers/correct_answer field")
+            
+            # Process options field if present
+            if 'options' in question:
+                options = question['options']
+                if isinstance(options, list):
+                    # Filter out empty strings and ensure proper formatting
+                    processed_options = []
+                    for option in options:
+                        if option and str(option).strip():  # Check if option is not empty
+                            processed_options.append(str(option).strip())
+                    
+                    # If no valid options found, generate default options for matching questions
+                    if not processed_options and 'correct_answer' in question:
+                        # Generate A, B, C, D, E, F, G based on the correct_answer
+                        correct_answer = question['correct_answer']
+                        if isinstance(correct_answer, str) and correct_answer.upper() in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+                            # Generate all possible options for matching information
+                            processed_options = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+                    
+                    # Update the question with processed options
+                    question['options'] = processed_options
+                else:
+                    question['options'] = []
+            else:
+                question['options'] = []
+            
+            # Handle question_number field - support different field names
+            if 'question_number' in question:
+                # Standard format - already has question_number
+                pass
+            elif 'number' in question:
+                # Note Completion format - convert number to question_number
+                question['question_number'] = question.pop('number')
+            else:
+                # Default to index + 1
+                question['question_number'] = i + 1
+            
+            processed_questions.append(question)
+        
+        return processed_questions
+
+    def create(self, validated_data):
+        """
+        Create a new QuestionType instance with proper questions_data processing.
+        """
+        # Process questions_data before saving
+        if 'questions_data' in validated_data:
+            validated_data['questions_data'] = self.validate_questions_data(validated_data['questions_data'])
+        
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        """
+        Update an existing QuestionType instance with proper questions_data processing.
+        """
+        # Process questions_data before saving
+        if 'questions_data' in validated_data:
+            validated_data['questions_data'] = self.validate_questions_data(validated_data['questions_data'])
+        
+        return super().update(instance, validated_data)
+    
+    

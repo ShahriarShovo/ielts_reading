@@ -67,25 +67,50 @@ class RandomQuestionsView(APIView):
                 logger.error("Invalid count value provided")
                 return Response({'error': 'Count must be a positive integer'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Get reading tests with passages for the organization
-            reading_objects = list(ReadingTest.objects.filter(organization_id=organization_id))
-            if not reading_objects:
-                logger.error(f"No reading tests found for organization {organization_id}")
-                return Response({'error': 'No reading tests available for this organization'}, status=status.HTTP_404_NOT_FOUND)
+            # =============================================================================
+            # NEW: Use TestRegistry for intelligent test selection
+            # =============================================================================
+            # This replaces the old random selection with intelligent selection
+            # that ensures no orphaned test IDs and provides load balancing
+            # =============================================================================
             
-            # Filter tests that have at least one passage
+            # Import the TestRegistry service
+            from reading.services.test_registry_service import TestRegistryService
+            
+            # Get the best test(s) using intelligent selection from TestRegistry
+            # This ensures we only get tests that actually exist and are available
+            selected_tests = TestRegistryService.integrate_with_random_questions(
+                organization_id=organization_id,
+                count=count
+            )
+            
+            # Check if we got any tests
+            if not selected_tests:
+                logger.error(f"No tests available in TestRegistry for organization {organization_id}")
+                return Response({
+                    'error': 'No reading tests available for this organization',
+                    'details': 'No active tests found in test registry'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Filter tests that have at least one passage (safety check)
             tests_with_passages = []
-            for test in reading_objects:
+            for test in selected_tests:
                 passage_count = Passage.objects.filter(test=test).count()
                 if passage_count > 0:
                     tests_with_passages.append(test)
+                else:
+                    # Log warning for tests without passages
+                    logger.warning(f"Test {test.test_id} has no passages - skipping")
             
             if not tests_with_passages:
                 logger.error(f"No reading tests with passages found for organization {organization_id}")
-                return Response({'error': 'No reading tests with passages available for this organization'}, status=status.HTTP_404_NOT_FOUND)
+                return Response({
+                    'error': 'No reading tests with passages available for this organization',
+                    'details': 'All available tests lack passages'
+                }, status=status.HTTP_404_NOT_FOUND)
             
-            # Select random tests from those that have passages
-            random_reading = random.sample(tests_with_passages, min(count, len(tests_with_passages)))
+            # Use the tests selected by TestRegistry (they're already validated)
+            random_reading = tests_with_passages
             reading_serializer = ReadingTestSerializer(random_reading, many=True)
             
             # Get complete data for each reading test

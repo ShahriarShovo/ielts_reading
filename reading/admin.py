@@ -1,5 +1,8 @@
 from django.contrib import admin
 from .models import ReadingTest, Passage, Question, QuestionType, QuestionTypeConfig
+from .models.test_registry import TestRegistry
+from .models.student_answer import StudentAnswer
+from .models.submit_answer import SubmitAnswer
 
 # Register your models here.
 
@@ -134,3 +137,8 @@ class QuestionTypeConfigAdmin(admin.ModelAdmin):
         form.base_fields['template_examples'].help_text = "JSON array of template examples for frontend integration"
         form.base_fields['word_limit_rules'].help_text = "Word limit rules and configurations in JSON format"
         return form
+    
+    
+admin.site.register(TestRegistry)
+admin.site.register(StudentAnswer)
+admin.site.register(SubmitAnswer)

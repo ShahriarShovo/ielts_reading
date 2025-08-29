@@ -16,6 +16,12 @@ from .views import (
 )
 
 from .views.test_answers import get_test_answers
+from .views.student_answer_views import (
+    SubmitStudentAnswersView, 
+    get_exam_results, 
+    get_student_answers_for_comparison,
+    update_student_answer_results
+)
 
 from .views.create_exam import RandomQuestionsView
 
@@ -62,4 +68,12 @@ urlpatterns = [
     
     # Test Answers API (for Academiq integration)
     path('test-answers/<uuid:test_id>/', get_test_answers, name='test-answers'),
+    
+    # Student Answer Submission API
+    path('submit-answers/', SubmitStudentAnswersView.as_view(), name='submit-answers'),
+    path('exam-results/<str:session_id>/', get_exam_results, name='exam-results'),
+    
+    # Student Answer Comparison API (for Academiq)
+    path('student-answers/<str:session_id>/', get_student_answers_for_comparison, name='student-answers-for-comparison'),
+    path('update-results/<str:session_id>/', update_student_answer_results, name='update-student-results'),
 ]
