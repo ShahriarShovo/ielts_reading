@@ -23,6 +23,11 @@ from .views.student_answer_views import (
     update_student_answer_results
 )
 
+from .views.answer_comparison_views import (
+    CompareAnswersView,
+    BandScoreCalculationView
+)
+
 from .views.create_exam import RandomQuestionsView
 
 app_name = 'reading'
@@ -76,4 +81,8 @@ urlpatterns = [
     # Student Answer Comparison API (for Academiq)
     path('student-answers/<str:session_id>/', get_student_answers_for_comparison, name='student-answers-for-comparison'),
     path('update-results/<str:session_id>/', update_student_answer_results, name='update-student-results'),
+    
+    # Answer Comparison and Scoring API
+    path('compare-answers/', CompareAnswersView.as_view(), name='compare-answers'),
+    path('calculate-band-score/', BandScoreCalculationView.as_view(), name='calculate-band-score'),
 ]

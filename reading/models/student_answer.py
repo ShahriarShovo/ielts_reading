@@ -38,30 +38,34 @@ class StudentAnswer(models.Model):
     # Global question number (1-40 across all passages)
     question_number = models.IntegerField(help_text="Global question number (1-40)")
     
-    # Student's submitted answer (can be string or JSON array)
-    # Examples: "TRUE", "D", ["B", "D"], "paint", etc.
-    student_answer = models.JSONField(help_text="Student's submitted answer (string or array)")
+    # Student's submitted answer with enhanced metadata (JSON format)
+    # Enhanced format: {
+    #   "student_answer": "actual_answer",
+    #   "question_type_id": "uuid",
+    #   "question_type_name": "multiple_choice",
+    #   "frontend_question_type": "multiple_choice",
+    #   "has_actual_mapping": true,
+    #   "submitted_at": "2024-01-01T12:00:00Z",
+    #   "answer_source": "enhanced_frontend",
+    #   "correct_answer": "correct_answer_if_available",
+    #   "passage_id": "passage_uuid_if_available"
+    # }
+    student_answer = models.JSONField(help_text="Enhanced student answer data with metadata")
     
     # Session identifier to group answers from same exam session
     session_id = models.CharField(max_length=36, help_text="Session ID from Academiq")
     
+    # Answer correctness (calculated during comparison)
+    is_correct = models.BooleanField(default=False, help_text="Whether the answer is correct")
+    
+    # Band score for this answer (if applicable)
+    band_score = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True, help_text="Band score for this answer")
+    
     # When the answer was submitted
-    submitted_at = models.DateTimeField(auto_now_add=True, help_text="When this answer was submitted")
+    submitted_at = models.DateTimeField(auto_now_add=True, help_text="When the answer was submitted")
     
-    # When the answer was compared and scored (filled after processing)
-    scored_at = models.DateTimeField(null=True, blank=True, help_text="When this answer was compared and scored")
-    
-    # Whether the answer is correct (filled after comparison)
-    is_correct = models.BooleanField(default=False, help_text="Whether student's answer is correct")
-    
-    # Band score for this question (filled after comparison)
-    band_score = models.DecimalField(
-        max_digits=3, 
-        decimal_places=1, 
-        null=True, 
-        blank=True, 
-        help_text="Band score for this question"
-    )
+    # When the answer was scored/compared
+    scored_at = models.DateTimeField(null=True, blank=True, help_text="When the answer was scored")
 
     class Meta:
         """

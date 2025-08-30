@@ -78,7 +78,7 @@ class SubmitStudentAnswersView(APIView):
                     test_id=empty_submission_test_id,
                     student_id=request.data.get('student_id'),
                     organization_id=request.data.get('organization_id', 1),
-                    total_questions=0
+                    total_questions=40  # IELTS Reading always has 40 questions
                 )
                 
                 logger.info(f"Created empty submission for session {session_id} with test_id: {empty_submission_test_id}")
@@ -89,7 +89,7 @@ class SubmitStudentAnswersView(APIView):
                         'submit_id': str(submit_answer.submit_id),
                         'session_id': session_id,
                         'test_id': empty_submission_test_id,
-                        'total_questions': 0,
+                        'total_questions': 40,
                         'submitted_at': timezone.now().isoformat(),
                         'answers': [],
                         'message': 'Empty submission - no answers provided.'
@@ -136,85 +136,148 @@ class SubmitStudentAnswersView(APIView):
                     test_id=test_id,  # Use extracted test_id
                     student_id=request.data.get('student_id'),
                     organization_id=request.data.get('organization_id', 1),
-                    total_questions=len(answers_data)
+                    total_questions=40  # IELTS Reading always has 40 questions
                 )
                 
                 processed_answers = []
-                total_questions = len(answers_data)
+                total_questions = 40  # IELTS Reading always has 40 questions
                 
+                # Validate that we have exactly 40 questions (IELTS Reading standard)
+                if total_questions != 40:
+                    logger.warning(f"Expected 40 questions but received {total_questions}. This might indicate missing questions.")
+                
+                # Create a map of answers for easy lookup
+                answers_map = {}
                 for answer_data in answers_data:
                     question_number = answer_data.get('question_number')
-                    question_type_id = answer_data.get('question_type_id')
                     student_answer = answer_data.get('student_answer')
+                    if question_number:
+                        answers_map[question_number] = answer_data
+                
+                # Enhanced question processing with proper mapping
+                logger.info("=== ENHANCED QUESTION PROCESSING ===")
+                
+                # Get the actual test data to map question numbers to question types
+                from reading.models import ReadingTest
+                actual_question_types = {}
+                
+                try:
+                    # Try to get the actual test to map questions properly
+                    reading_test = ReadingTest.objects.get(test_id=test_id)
+                    logger.info(f"Found reading test: {reading_test.test_name}")
                     
-                    logger.info(f"Processing answer - Q{question_number}: {student_answer} (type_id: {question_type_id})")
+                    # Build question number to question type mapping
+                    question_counter = 1
+                    for passage in reading_test.passages.all().order_by('order'):
+                        for question_type in passage.questions.all().order_by('order'):
+                            for question in question_type.questions_data:
+                                if question_counter <= 40:
+                                    actual_question_types[question_counter] = {
+                                        'question_type_obj': question_type,
+                                        'question_type_id': str(question_type.question_type_id),
+                                        'question_type_name': question_type.type,
+                                        'correct_answer': question.get('answer', ''),
+                                        'passage_id': str(passage.passage_id)
+                                    }
+                                    question_counter += 1
                     
-                    # Validate answer data - only require question_number and student_answer
-                    if not question_number or student_answer is None:
-                        logger.error(f"Answer validation failed for question {question_number}: question_number={question_number}, student_answer={student_answer}")
-                        return Response({
-                            'error': f'Missing required fields for question {question_number}. Need question_number and student_answer.'
-                        }, status=status.HTTP_400_BAD_REQUEST)
+                    logger.info(f"Built mapping for {len(actual_question_types)} questions")
                     
-                    # For now, store student answers with minimal data
-                    # We'll create a dummy QuestionType or find an existing one to satisfy the FK constraint
-                    # This is temporary until comparison logic is implemented
+                except ReadingTest.DoesNotExist:
+                    logger.warning(f"Reading test {test_id} not found, using fallback mapping")
+                except Exception as e:
+                    logger.error(f"Error building question mapping: {str(e)}")
+                
+                # Process all 40 questions (1-40) with enhanced mapping
+                for question_number in range(1, 41):
+                    answer_data = answers_map.get(question_number, {})
+                    student_answer = answer_data.get('student_answer', '')
+                    frontend_question_type = answer_data.get('question_type', 'unknown')
                     
-                    # Try to find any existing QuestionType to satisfy the FK constraint
-                    # This is a temporary workaround
-                    dummy_question_type = None
-                    try:
-                        # Skip trying to find actual question type for temp IDs (like 'temp-1')
-                        if question_type_id and not question_type_id.startswith('temp-'):
-                            dummy_question_type = QuestionType.objects.filter(question_type_id=question_type_id).first()
+                    logger.info(f"Processing Q{question_number}: '{student_answer}' (Frontend type: {frontend_question_type})")
+                    
+                    # Get the actual question type from mapping
+                    question_type_obj = None
+                    question_type_id = None
+                    
+                    if question_number in actual_question_types:
+                        # Use actual question type from test
+                        question_type_obj = actual_question_types[question_number]['question_type_obj']
+                        question_type_id = actual_question_types[question_number]['question_type_id']
+                        logger.info(f"Q{question_number}: Using actual question type {actual_question_types[question_number]['question_type_name']}")
+                    else:
+                        # Fallback: try to find by frontend-provided ID
+                        frontend_type_id = answer_data.get('question_type_id')
+                        if frontend_type_id and not frontend_type_id.startswith('temp-'):
+                            try:
+                                question_type_obj = QuestionType.objects.get(question_type_id=frontend_type_id)
+                                question_type_id = frontend_type_id
+                                logger.info(f"Q{question_number}: Using frontend-provided question type")
+                            except QuestionType.DoesNotExist:
+                                logger.warning(f"Q{question_number}: Frontend question type {frontend_type_id} not found")
                         
-                        # If not found or is a temp ID, get any QuestionType as placeholder
-                        if not dummy_question_type:
-                            dummy_question_type = QuestionType.objects.first()
-                            logger.warning(f"Using placeholder QuestionType for question {question_number} with temp ID: {question_type_id}")
-                    except Exception as e:
-                        logger.error(f"Error finding QuestionType: {str(e)}")
-                        # Get any QuestionType as fallback
-                        dummy_question_type = QuestionType.objects.first()
+                        # Final fallback: use any available question type
+                        if not question_type_obj:
+                            question_type_obj = QuestionType.objects.first()
+                            if question_type_obj:
+                                question_type_id = str(question_type_obj.question_type_id)
+                                logger.warning(f"Q{question_number}: Using fallback question type")
                     
-                    if not dummy_question_type:
+                    if not question_type_obj:
+                        logger.error("No question types available in database")
                         return Response({
                             'error': 'No QuestionType found in database - please set up question types first'
                         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                     
-                    # Create StudentAnswer record with the answer data
-                    # Store the actual question_type_id in the student_answer field for now
-                    answer_data_with_type = {
-                        'answer': student_answer,
-                        'original_question_type_id': question_type_id,  # Store for later use
-                        'submitted_by_frontend': True
+                    # Create enhanced answer data with proper metadata
+                    enhanced_answer_data = {
+                        'student_answer': student_answer,
+                        'question_type_id': question_type_id,
+                        'question_type_name': question_type_obj.type,
+                        'frontend_question_type': frontend_question_type,
+                        'has_actual_mapping': question_number in actual_question_types,
+                        'submitted_at': timezone.now().isoformat(),
+                        'answer_source': 'enhanced_frontend'
                     }
                     
+                    # Add correct answer if available from mapping
+                    if question_number in actual_question_types:
+                        enhanced_answer_data['correct_answer'] = actual_question_types[question_number]['correct_answer']
+                        enhanced_answer_data['passage_id'] = actual_question_types[question_number]['passage_id']
+                    
+                    # Create or update StudentAnswer record
                     student_answer_obj, created = StudentAnswer.objects.get_or_create(
                         submit_answer=submit_answer,
                         question_number=question_number,
                         defaults={
-                            'question_type': dummy_question_type,  # Temporary placeholder
-                            'student_answer': answer_data_with_type,  # Store as JSON with metadata
-                            'session_id': session_id,  # Keep for backward compatibility
-                            'is_correct': False,  # Default to False until comparison is done
-                            'scored_at': None    # Will be set later during comparison
+                            'question_type': question_type_obj,
+                            'student_answer': enhanced_answer_data,
+                            'session_id': session_id,
+                            'is_correct': False,  # Will be calculated later
+                            'scored_at': None
                         }
                     )
                     
                     if not created:
-                        # Update existing answer
-                        student_answer_obj.student_answer = answer_data_with_type
-                        student_answer_obj.session_id = session_id  # Update session_id
-                        student_answer_obj.is_correct = False  # Reset to False for re-scoring
-                        student_answer_obj.scored_at = None    # Reset for re-scoring
+                        # Update existing answer with enhanced data
+                        student_answer_obj.question_type = question_type_obj
+                        student_answer_obj.student_answer = enhanced_answer_data
+                        student_answer_obj.session_id = session_id
+                        student_answer_obj.is_correct = False  # Reset for re-scoring
+                        student_answer_obj.scored_at = None
                         student_answer_obj.save()
+                        logger.info(f"Q{question_number}: Updated existing answer")
+                    else:
+                        logger.info(f"Q{question_number}: Created new answer")
                     
-                    # Add to processed answers (simplified response)
+                    # Add to processed answers with enhanced metadata
                     processed_answers.append({
                         'question_number': question_number,
                         'student_answer': student_answer,
-                        'question_type_id': question_type_id,  # Store for future use
+                        'question_type_id': question_type_id,
+                        'question_type_name': question_type_obj.type,
+                        'has_actual_mapping': question_number in actual_question_types,
+                        'frontend_type': frontend_question_type,
                         'saved': True
                     })
                 
