@@ -113,14 +113,25 @@ class Passage(models.Model):
         Get the total number of questions in this passage.
         
         This method calculates the total number of questions across all
-        question types in this passage.
+        question types in this passage using the new question counting logic.
         
         Returns:
             int: Total number of questions in the passage
         """
         from .question_type import QuestionType
+        import logging
+        logger = logging.getLogger('reading')
+        
         question_types = QuestionType.objects.filter(passage=self)
-        return sum(qt.actual_count for qt in question_types)
+        total_count = 0
+        
+        for qt in question_types:
+            # Use the new calculate_question_count method
+            count = qt.calculate_question_count()
+            logger.info(f"  Question Type '{qt.type}': {count} questions (questions_data length: {len(qt.questions_data)})")
+            total_count += count
+        
+        return total_count
     
     def get_question_type_count(self):
         """
@@ -170,6 +181,61 @@ class Passage(models.Model):
         
         # Calculate end number based on this passage's questions
         end_number = start_number + self.get_total_question_count() - 1
+        
+        return (start_number, end_number)
+    
+    def get_next_question_number(self):
+        """
+        Get the next available question number for this passage.
+        
+        This method calculates the starting question number for the next question type
+        to be added to this passage. It's used by the serializer for dynamic numbering.
+        
+        Returns:
+            int: Next available question number
+        """
+        # Get the global question count across all passages in the test
+        # This ensures sequential numbering across the entire test
+        test = self.test
+        total_questions = 0
+        
+        # Count questions from all passages up to this one
+        for passage in test.passages.all().order_by('order'):
+            if passage.order < self.order:
+                total_questions += passage.get_question_count()
+            elif passage.order == self.order:
+                # Add questions from this passage
+                total_questions += passage.get_question_count()
+                break
+        
+        return total_questions + 1
+    
+    def get_question_range_for_type(self, question_type):
+        """
+        Get the question range for a specific question type within this passage.
+        
+        This method calculates the start and end question numbers for a specific
+        question type based on its position within the passage.
+        
+        Args:
+            question_type: QuestionType instance
+            
+        Returns:
+            tuple: (start_number, end_number)
+        """
+        # Get all question types in this passage ordered by their sequence
+        question_types = self.get_question_types()
+        
+        # Calculate start number based on previous question types
+        start_number = 1
+        for qt in question_types:
+            if qt.order < question_type.order:
+                start_number += qt.calculate_question_count()
+            else:
+                break
+        
+        # Calculate end number based on this question type's count
+        end_number = start_number + question_type.calculate_question_count() - 1
         
         return (start_number, end_number)
     

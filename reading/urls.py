@@ -14,6 +14,7 @@ from .views import (
     TemplateApplicationView,
     TemplateInfoView,
 )
+from .views.question_count_view import QuestionCountView
 
 from .views.test_answers import get_test_answers
 from .views.student_answer_views import (
@@ -36,6 +37,9 @@ urlpatterns = [
     # REST API URLs for Reading Tests (UUID-based)
     path('tests/', ReadingTestView.as_view(), name='api_tests'),
     path('tests/<uuid:test_id>/', ReadingTestView.as_view(), name='api_test_detail'),
+    
+    # Question Count API
+    path('question-count/', QuestionCountView.as_view(), name='api_question_count'),
     
     # REST API URLs for Reading Passages (UUID-based)
     path('passages/', PassageView.as_view(), name='api_passages'),
@@ -66,8 +70,6 @@ urlpatterns = [
     # Template Application
     path('templates/apply/', TemplateApplicationView.as_view(), name='api_templates_apply'),
     path('templates/info/', TemplateInfoView.as_view(), name='api_templates_info'),
-    
-    
     
     path('random-questions/', RandomQuestionsView.as_view(), name='random-questions'),
     

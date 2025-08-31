@@ -226,12 +226,8 @@ class QuestionType(models.Model):
         # Add to questions_data
         self.questions_data.append(question_obj)
         
-        # Update actual count
-        self.actual_count = len(self.questions_data)
-        self.save()
-        
-        # Update student range after adding question
-        self.update_student_range()
+        # Update question numbering using new logic
+        self.update_question_numbering()
     
     def remove_question(self, question_number):
         """
@@ -246,12 +242,8 @@ class QuestionType(models.Model):
         # Find and remove the question
         self.questions_data = [q for q in self.questions_data if q.get('number') != question_number]
         
-        # Update actual count
-        self.actual_count = len(self.questions_data)
-        self.save()
-        
-        # Update student range after removing question
-        self.update_student_range()
+        # Update question numbering using new logic
+        self.update_question_numbering()
     
     def update_question(self, question_number, question_text=None, answer=None, options=None):
         """
@@ -289,8 +281,8 @@ class QuestionType(models.Model):
         
         self.save()
         
-        # Update student range after reordering
-        self.update_student_range()
+        # Update question numbering using new logic
+        self.update_question_numbering()
     
     def can_add_questions(self, additional_questions=1):
         """
@@ -312,3 +304,292 @@ class QuestionType(models.Model):
         Returns the number of questions that can still be added.
         """
         return self.passage.get_remaining_question_slots()
+
+    # Question Numbering Utility Methods
+    def calculate_question_count(self):
+        """
+        Calculate question count for different question types.
+        
+        This method calculates the total number of questions based on the question type
+        and the content of questions_data.
+        
+        Returns:
+            int: Total question count
+        """
+        if not self.questions_data:
+            return 0
+
+        if self.type in ['True/False/Not Given', 'Yes/No/Not Given', 
+                        'Multiple Choice Questions (Single Answer)', 
+                        'Multiple Choice Questions (Multiple Answer)',
+                        'Matching Information', 'Matching Headings', 'Matching Features',
+                        'Flow Chart Completion', 'Diagram Label Completion']:
+            # Each question = 1 count
+            return len(self.questions_data)
+        
+        elif self.type in ['Note Completion', 'Sentence Completion', 'Summary Completion']:
+            # Count by gaps (dots/underscores) in question text
+            total_gaps = 0
+            for question in self.questions_data:
+                text = question.get('text', '')
+                total_gaps += self._count_gaps_in_text(text)
+            return total_gaps
+        
+        else:
+            # Default: each question = 1 count
+            return len(self.questions_data)
+
+    def _count_gaps_in_text(self, text):
+        """
+        Count gaps (dots/underscores) in text for completion questions.
+        
+        Args:
+            text (str): Question text
+            
+        Returns:
+            int: Number of gaps
+        """
+        if not text:
+            return 0
+        
+        import re
+        
+        # Count dots (...) or underscores (_) patterns
+        dot_pattern = r'\.{3,}'  # 3 or more dots
+        underscore_pattern = r'_{3,}'  # 3 or more underscores
+        single_gap_pattern = r'_'  # Single underscores
+        
+        dot_matches = len(re.findall(dot_pattern, text))
+        underscore_matches = len(re.findall(underscore_pattern, text))
+        single_gap_matches = len(re.findall(single_gap_pattern, text))
+        
+        # Return the maximum count (either dots, underscores, or single gaps)
+        return max(dot_matches, underscore_matches, single_gap_matches)
+
+    def parse_question_range(self, question_range):
+        """
+        Parse question range from teacher input.
+        
+        Args:
+            question_range (str): Teacher input (e.g., "20,21", "20-21", "20 and 21")
+            
+        Returns:
+            dict: {first: int, second: int}
+        """
+        if not question_range:
+            return {'first': 1, 'second': 1}
+
+        import re
+        
+        # Pattern 1: "20,21" (comma separated)
+        comma_pattern = r'^(\d+),(\d+)$'
+        comma_match = re.match(comma_pattern, question_range)
+        if comma_match:
+            return {
+                'first': int(comma_match.group(1)),
+                'second': int(comma_match.group(2))
+            }
+
+        # Pattern 2: "20-21" (hyphen separated)
+        hyphen_pattern = r'^(\d+)-(\d+)$'
+        hyphen_match = re.match(hyphen_pattern, question_range)
+        if hyphen_match:
+            return {
+                'first': int(hyphen_match.group(1)),
+                'second': int(hyphen_match.group(2))
+            }
+
+        # Pattern 3: "20 and 21" (text format)
+        text_pattern = r'^(\d+)\s+and\s+(\d+)$'
+        text_match = re.match(text_pattern, question_range, re.IGNORECASE)
+        if text_match:
+            return {
+                'first': int(text_match.group(1)),
+                'second': int(text_match.group(2))
+            }
+
+        # Pattern 4: Single number "20"
+        single_pattern = r'^(\d+)$'
+        single_match = re.match(single_pattern, question_range)
+        if single_match:
+            num = int(single_match.group(1))
+            return {'first': num, 'second': num}
+
+        # Default fallback
+        return {'first': 1, 'second': 1}
+
+    def extract_mcma_question_numbers(self, question_text, current_global_number):
+        """
+        Extract question numbers from MCMA question text.
+        
+        Args:
+            question_text (str): Question text (e.g., "Questions 20 and 21")
+            current_global_number (int): Current global question number
+            
+        Returns:
+            dict: {first: int, second: int}
+        """
+        if not question_text:
+            return {'first': current_global_number, 'second': current_global_number}
+
+        import re
+        
+        # Pattern 1: "Questions 15 and 16"
+        and_pattern = r'Questions?\s+(\d+)\s+and\s+(\d+)'
+        and_match = re.search(and_pattern, question_text, re.IGNORECASE)
+        if and_match:
+            return {
+                'first': int(and_match.group(1)),
+                'second': int(and_match.group(2))
+            }
+
+        # Pattern 2: "Questions 15-16"
+        range_pattern = r'Questions?\s+(\d+)-(\d+)'
+        range_match = re.search(range_pattern, question_text, re.IGNORECASE)
+        if range_match:
+            return {
+                'first': int(range_match.group(1)),
+                'second': int(range_match.group(2))
+            }
+
+        # Pattern 3: "Questions 15, 16"
+        comma_pattern = r'Questions?\s+(\d+),\s*(\d+)'
+        comma_match = re.search(comma_pattern, question_text, re.IGNORECASE)
+        if comma_match:
+            return {
+                'first': int(comma_match.group(1)),
+                'second': int(comma_match.group(2))
+            }
+
+        # Pattern 4: "Which TWO" or "Choose TWO" - use current global number
+        two_pattern = r'Which\s+TWO|Choose\s+TWO'
+        if re.search(two_pattern, question_text, re.IGNORECASE):
+            return {
+                'first': current_global_number,
+                'second': current_global_number + 1  # Store answers in separate question numbers
+            }
+
+        # Pattern 5: "Questions 15 and 16 and 17 and 18" - multiple ranges
+        multiple_range_pattern = r'Questions?\s+((?:\d+(?:-|and|\s+and\s+)\d+(?:\s*,\s*|\s+and\s+)?)+)'
+        multiple_range_match = re.search(multiple_range_pattern, question_text, re.IGNORECASE)
+        if multiple_range_match:
+            numbers = re.findall(r'\d+', multiple_range_match.group(1))
+            if numbers and len(numbers) >= 2:
+                return {
+                    'first': int(numbers[0]),
+                    'second': int(numbers[1])
+                }
+
+        # Fallback: use current global question number
+        return {
+            'first': current_global_number,
+            'second': current_global_number
+        }
+
+    def format_question_range(self, start, end):
+        """
+        Format question range for display.
+        
+        Args:
+            start (int): Start question number
+            end (int): End question number
+            
+        Returns:
+            str: Formatted range (e.g., "1-7", "20-21")
+        """
+        if start == end:
+            return str(start)
+        return f"{start}-{end}"
+
+    def calculate_question_count(self):
+        """
+        Calculate the actual question count based on question type and content.
+        
+        This method determines how many questions this question type represents
+        based on the type and the content of questions_data.
+        
+        Returns:
+            int: Actual number of questions this type represents
+        """
+        # For Note Completion, count based on the number of answers
+        if self.type == 'Note Completion':
+            total_count = 0
+            for question in self.questions_data:
+                # Note Completion stores answers as a list
+                answers = question.get('correct_answer', [])
+                if isinstance(answers, list):
+                    total_count += len(answers)
+                else:
+                    # If it's a single answer, count as 1
+                    total_count += 1
+            return total_count
+        
+        # For Multiple Choice Questions (Multiple Answer), count based on correct answers
+        elif self.type == 'Multiple Choice Questions (Multiple Answer)':
+            total_count = 0
+            for question in self.questions_data:
+                # Count the number of correct answers for each question
+                correct_answers = question.get('correct_answer', [])
+                if isinstance(correct_answers, list):
+                    total_count += len(correct_answers)
+                else:
+                    # If it's a single answer, count as 1
+                    total_count += 1
+            return total_count
+        
+        # For most other question types, count the number of questions in questions_data
+        elif self.type in ['True/False/Not Given', 'Yes/No/Not Given', 'Multiple Choice Questions (MCQ)', 'Sentence Completion', 'Summary Completion', 'Table Completion', 'Flow Chart Completion', 'Short Answer Questions', 'Diagram Label Completion', 'Matching Information', 'Matching Headings', 'Sentence Matching', 'Matching Experts']:
+            return len(self.questions_data)
+        
+        # Default fallback
+        return len(self.questions_data)
+
+    def update_question_numbering(self):
+        """
+        Update question numbering based on question type and content.
+        
+        This method recalculates the actual_count and updates the student_range
+        based on the question type and the content of questions_data.
+        """
+        # Calculate new actual count based on question type
+        new_actual_count = self.calculate_question_count()
+        
+        # Update actual_count if it has changed
+        if self.actual_count != new_actual_count:
+            self.actual_count = new_actual_count
+            self.save(update_fields=['actual_count'])
+        
+        # Update student range
+        self.update_student_range()
+    
+    def get_question_range(self):
+        """
+        Get the question range for this question type within its passage.
+        
+        This method calculates and returns the start and end question numbers for this
+        question type based on its position within the passage and the number of questions
+        it contains.
+        
+        Returns:
+            tuple: (start_number, end_number)
+        """
+        # Get the starting question number for this question type
+        start_number = self.passage.get_next_question_number()
+        
+        # Calculate end number based on this question type's count
+        end_number = start_number + self.calculate_question_count() - 1
+        
+        return (start_number, end_number)
+    
+    def get_dynamic_question_range(self):
+        """
+        Get the dynamic question range for this question type.
+        
+        This method calculates the question range based on the actual position
+        of this question type within its passage, considering all previous
+        question types.
+        
+        Returns:
+            tuple: (start_number, end_number)
+        """
+        return self.passage.get_question_range_for_type(self)

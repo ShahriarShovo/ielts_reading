@@ -15,11 +15,11 @@ class ReadingTestAdmin(admin.ModelAdmin):
 
 @admin.register(Passage)
 class PassageAdmin(admin.ModelAdmin):
-    list_display = ['title', 'subtitle', 'test', 'order', 'get_question_type_count', 'get_total_question_count']
+    list_display = ['title', 'subtitle', 'test', 'order', 'get_question_type_count', 'get_total_question_count', 'get_question_range']
     list_filter = ['test', 'order']
     search_fields = ['title', 'subtitle', 'text', 'test__test_name']
     ordering = ['test', 'order']
-    readonly_fields = ['passage_id']
+    readonly_fields = ['passage_id', 'get_question_range']
     
     # ADD THIS FIELDSETS SECTION:
     fieldsets = (
@@ -28,6 +28,10 @@ class PassageAdmin(admin.ModelAdmin):
         }),
         ('Content', {
             'fields': ('text', 'instruction')
+        }),
+        ('Question Information', {
+            'fields': ('get_question_type_count', 'get_total_question_count', 'get_question_range'),
+            'description': 'Automatically calculated question information'
         }),
         ('Paragraph Structure', {
             'fields': ('has_paragraphs', 'paragraph_count', 'paragraph_labels'),
@@ -43,17 +47,29 @@ class PassageAdmin(admin.ModelAdmin):
         return obj.get_total_question_count()
     get_total_question_count.short_description = 'Total Questions'
 
+    def get_question_range(self, obj):
+        try:
+            start, end = obj.get_question_range()
+            return f"{start}-{end}"
+        except Exception as e:
+            return f"Error: {str(e)[:20]}..."
+    get_question_range.short_description = 'Question Range'
+
 @admin.register(QuestionType)
 class QuestionTypeAdmin(admin.ModelAdmin):
-    list_display = ['type', 'passage', 'order', 'expected_range', 'actual_count', 'get_question_count']
+    list_display = ['type', 'passage', 'order', 'get_dynamic_question_range', 'get_actual_question_count', 'get_question_count']
     list_filter = ['type', 'passage__test', 'order']
     search_fields = ['type', 'passage__title', 'instruction_template']
     ordering = ['passage', 'order']
-    readonly_fields = ['question_type_id', 'get_processed_instruction', 'get_question_range']
+    readonly_fields = ['question_type_id', 'get_processed_instruction', 'get_question_range', 'get_dynamic_question_range']
 
     fieldsets = (
         ('Basic Information', {
             'fields': ('passage', 'type', 'title', 'order', 'expected_range', 'actual_count')
+        }),
+        ('Dynamic Question Range', {
+            'fields': ('get_dynamic_question_range', 'get_actual_question_count'),
+            'description': 'Automatically calculated question range and count'
         }),
         ('Instruction Template', {
             'fields': ('instruction_template', 'get_processed_instruction'),
@@ -67,7 +83,11 @@ class QuestionTypeAdmin(admin.ModelAdmin):
 
     def get_question_count(self, obj):
         return len(obj.questions_data) if obj.questions_data else 0
-    get_question_count.short_description = 'Questions'
+    get_question_count.short_description = 'Questions in Data'
+
+    def get_actual_question_count(self, obj):
+        return obj.calculate_question_count()
+    get_actual_question_count.short_description = 'Actual Count'
 
     def get_processed_instruction(self, obj):
         return obj.get_processed_instruction()
@@ -77,6 +97,14 @@ class QuestionTypeAdmin(admin.ModelAdmin):
         start, end = obj.get_question_range()
         return f"{start}-{end}"
     get_question_range.short_description = 'Question Range'
+
+    def get_dynamic_question_range(self, obj):
+        try:
+            start, end = obj.get_dynamic_question_range()
+            return f"{start}-{end}"
+        except Exception as e:
+            return f"Error: {str(e)[:20]}..."
+    get_dynamic_question_range.short_description = 'Dynamic Range'
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
