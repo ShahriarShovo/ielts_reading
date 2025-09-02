@@ -67,10 +67,6 @@ class QuestionTypeAdmin(admin.ModelAdmin):
         ('Basic Information', {
             'fields': ('passage', 'type', 'title', 'order', 'expected_range', 'actual_count')
         }),
-        ('Dynamic Question Range', {
-            'fields': ('get_dynamic_question_range', 'get_actual_question_count'),
-            'description': 'Automatically calculated question range and count'
-        }),
         ('Instruction Template', {
             'fields': ('instruction_template', 'get_processed_instruction'),
             'description': 'Use placeholders: {start}, {end}, {passage_number}'
