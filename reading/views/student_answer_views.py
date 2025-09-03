@@ -113,6 +113,12 @@ class SubmitStudentAnswersView(APIView):
                     test_id = request.data.get('test_id')
                 
                 if not test_id:
+                    # Try to get test_id from exam session data
+                    test_id = self._get_test_id_from_session(session_id)
+                    if test_id:
+                        logger.info(f"Found test_id from session data: {test_id}")
+                
+                if not test_id:
                     # As a last resort, generate a UUID from session_id for compatibility
                     # This allows us to save student data even without proper test_id
                     # Create deterministic UUID based on session_id
@@ -305,6 +311,62 @@ class SubmitStudentAnswersView(APIView):
                 'error': f'An error occurred while submitting answers: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def _get_test_id_from_session(self, session_id):
+        """
+        Get the correct test_id for a session from exam session data.
+        
+        This method tries to find the test_id from various sources:
+        1. From existing SubmitAnswer records
+        2. From exam session data
+        3. From student answer data
+        
+        Args:
+            session_id: Session ID to find test_id for
+            
+        Returns:
+            str: Test ID if found, None otherwise
+        """
+        try:
+            # First, check if there's an existing SubmitAnswer with correct test_id
+            existing_submission = SubmitAnswer.objects.filter(session_id=session_id).first()
+            if existing_submission:
+                # Check if this test_id actually exists and has questions
+                from reading.models import ReadingTest
+                try:
+                    test = ReadingTest.objects.get(test_id=existing_submission.test_id)
+                    if test.passages.exists():
+                        logger.info(f"Found existing test_id from SubmitAnswer: {existing_submission.test_id}")
+                        return str(existing_submission.test_id)
+                except ReadingTest.DoesNotExist:
+                    logger.warning(f"Existing test_id {existing_submission.test_id} not found in ReadingTest")
+            
+            # Try to find from exam session data (you may need to implement this based on your exam session structure)
+            # For now, we'll try to find from any existing student answers
+            student_answers = StudentAnswer.objects.filter(session_id=session_id)
+            if student_answers.exists():
+                # Check if any answer has test_id in metadata
+                for answer in student_answers:
+                    if isinstance(answer.student_answer, dict):
+                        test_id = answer.student_answer.get('test_id')
+                        if test_id:
+                            # Verify this test_id exists
+                            from reading.models import ReadingTest
+                            try:
+                                test = ReadingTest.objects.get(test_id=test_id)
+                                if test.passages.exists():
+                                    logger.info(f"Found test_id from student answer metadata: {test_id}")
+                                    return str(test_id)
+                            except ReadingTest.DoesNotExist:
+                                logger.warning(f"Test_id {test_id} from metadata not found in ReadingTest")
+            
+            # If no test_id found, return None
+            logger.warning(f"No valid test_id found for session {session_id}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting test_id from session {session_id}: {str(e)}")
+            return None
+
 
 @api_view(['GET'])
 @permission_classes([SharedAuthPermission])
@@ -434,6 +496,7 @@ def get_exam_results(request, session_id):
     """
     Get exam results for a specific session.
     """
+    
     try:
         logger.info(f"Getting exam results for session {session_id}")
         
@@ -470,6 +533,7 @@ def get_exam_results(request, session_id):
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
+        
         logger.error(f"Error getting exam results: {str(e)}")
         return Response({
             'error': f'An error occurred while getting results: {str(e)}'

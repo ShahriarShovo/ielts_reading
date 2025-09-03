@@ -1,129 +1,216 @@
-# ielts_reading/core/reading/views/answer_comparison_views.py
-# API endpoints for answer comparison and scoring
+# reading/views/answer_comparison_views.py
 
-import logging
-from rest_framework.views import APIView
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
-from django.http import JsonResponse
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.decorators import authentication_classes
+from django.shortcuts import get_object_or_404
+from ..models import SubmitAnswer
+from ..services.answer_comparison_service import AnswerComparisonService
 
-from reading.permissions import SharedAuthPermission
-from reading.utils.answer_comparison import compare_answers
-from reading.views.test_answers import get_test_answers
+@api_view(['POST'])
+# @permission_classes([IsAuthenticated])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def compare_submission(request):
+    """Compare student submission with correct answers."""
+    try:
+        # Accept either submit_id or session_id
+        submit_id = request.data.get('submit_id')
+        session_id = request.data.get('session_id')
+        
+        if not submit_id and not session_id:
+            return Response(
+                {'error': 'Either submit_id or session_id is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find submission by submit_id or session_id
+        if submit_id:
+            submit_answer = get_object_or_404(SubmitAnswer, submit_id=submit_id)
+        else:
+            submit_answer = get_object_or_404(SubmitAnswer, session_id=session_id)
+        
+        # Check if already processed
+        if submit_answer.is_processed:
+            return Response(
+                {'error': 'Submission already processed'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        service = AnswerComparisonService()
+        result = service.compare_submission(submit_answer)
+        
+        if result['success']:
+            return Response(result, status=status.HTTP_200_OK)
+        else:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        
+    except SubmitAnswer.DoesNotExist:
+        return Response(
+            {'error': 'Submission not found'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Server error: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
-logger = logging.getLogger('reading')
+@api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+@permission_classes([AllowAny]) 
+def get_comparison_summary(request, submit_id):
+    """
+    Get comparison summary for a submission.
+    
+    GET /api/reading/comparison-summary/{submit_id}/
+    
+    Response:
+    {
+        "success": true,
+        "ielts_band_score": 7.0,
+        "question_type_breakdown": {...}
+    }
+    """
+    try:
+        submit_answer = get_object_or_404(SubmitAnswer, submit_id=submit_id)
+        service = AnswerComparisonService()
+        summary = service.get_comparison_summary(submit_answer)
+        
+        return Response(summary, status=status.HTTP_200_OK)
+        
+    except SubmitAnswer.DoesNotExist:
+        return Response(
+            {'error': 'Submission not found'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Server error: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
-class CompareAnswersView(APIView):
+@api_view(['POST'])
+# @permission_classes([IsAuthenticated])
+@permission_classes([AllowAny]) 
+def batch_compare_submissions(request):
     """
-    API endpoint to compare student answers with correct answers.
+    Compare multiple submissions at once.
     
-    This endpoint:
-    1. Receives student answers and test_id
-    2. Gets correct answers for the test
-    3. Compares answers using comparison logic
-    4. Returns detailed results with band score
+    POST /api/reading/batch-compare/
     
-    Used by Academiq for answer comparison and scoring.
+    Request Body:
+    {
+        "submit_ids": ["uuid1", "uuid2", "uuid3"]
+    }
+    
+    Response:
+    {
+        "total_processed": 3,
+        "results": [...]
+    }
     """
-    permission_classes = [SharedAuthPermission]
-    
-    def post(self, request):
-        try:
-            # Get request data
-            student_answers = request.data.get('student_answers', {})
-            test_id = request.data.get('test_id')
-            
-            if not test_id:
-                return Response({
-                    'error': 'test_id is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            if not student_answers:
-                return Response({
-                    'error': 'student_answers is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            logger.info(f"Comparing answers for test {test_id}")
-            logger.info(f"Student answers: {len(student_answers)} questions")
-            
-            # Create a mock request object for get_test_answers function
-            from django.http import HttpRequest
-            mock_request = HttpRequest()
-            mock_request.user_id = getattr(request, 'user_id', None)
-            mock_request.organization_id = getattr(request, 'organization_id', None)
-            
-            # Get correct answers for this test
-            correct_answers_response = get_test_answers(mock_request, test_id)
-            
-            if correct_answers_response.status_code != 200:
-                return Response({
-                    'error': 'Could not retrieve correct answers for this test'
-                }, status=status.HTTP_404_NOT_FOUND)
-            
-            correct_answers_data = correct_answers_response.data
-            correct_answers = correct_answers_data.get('answers', {})
-            logger.info(f"Retrieved {len(correct_answers)} correct answers")
-            
-            # Compare answers
-            comparison_results = compare_answers(student_answers, correct_answers)
-            
-            logger.info(f"Comparison complete: {comparison_results['correct_answers']}/{comparison_results['total_questions']} correct, Band: {comparison_results['band_score']}")
-            
-            return Response({
-                'success': True,
-                'results': comparison_results,
-                'test_id': test_id,
-                'message': f"Comparison complete: {comparison_results['correct_answers']}/{comparison_results['total_questions']} correct"
-            }, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.error(f"Error comparing answers: {str(e)}")
-            return Response({
-                'error': f'Failed to compare answers: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-class BandScoreCalculationView(APIView):
-    """
-    API endpoint to calculate band score from correct answer count.
-    
-    Simple endpoint that takes correct_count and returns band score.
-    """
-    permission_classes = [SharedAuthPermission]
-    
-    def post(self, request):
-        try:
-            from reading.utils.answer_comparison import calculate_band_score
-            
-            correct_count = request.data.get('correct_count')
-            
-            if correct_count is None:
-                return Response({
-                    'error': 'correct_count is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+    try:
+        submit_ids = request.data.get('submit_ids', [])
+        
+        if not submit_ids:
+            return Response(
+                {'error': 'submit_ids list is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not isinstance(submit_ids, list):
+            return Response(
+                {'error': 'submit_ids must be a list'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        results = []
+        errors = []
+        
+        service = AnswerComparisonService()
+        
+        for submit_id in submit_ids:
             try:
-                correct_count = int(correct_count)
-            except (ValueError, TypeError):
-                return Response({
-                    'error': 'correct_count must be a valid integer'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            if correct_count < 0 or correct_count > 40:
-                return Response({
-                    'error': 'correct_count must be between 0 and 40'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            band_score = calculate_band_score(correct_count)
-            
+                submit_answer = SubmitAnswer.objects.get(submit_id=submit_id)
+                
+                # Check if already processed
+                if submit_answer.is_processed:
+                    errors.append({
+                        'submit_id': submit_id,
+                        'error': 'Already processed'
+                    })
+                    continue
+                
+                result = service.compare_submission(submit_answer)
+                results.append(result)
+                
+            except SubmitAnswer.DoesNotExist:
+                errors.append({
+                    'submit_id': submit_id,
+                    'error': 'Submission not found'
+                })
+            except Exception as e:
+                errors.append({
+                    'submit_id': submit_id,
+                    'error': str(e)
+                })
+        
+        return Response({
+            'total_processed': len(results),
+            'total_errors': len(errors),
+            'results': results,
+            'errors': errors
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': f'Server error: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+@permission_classes([AllowAny]) 
+def get_ielts_band_score(request, submit_id):
+    """
+    Get IELTS band score for a submission.
+    
+    GET /api/reading/ielts-band-score/{submit_id}/
+    
+    Response:
+    {
+        "submit_id": "uuid",
+        "ielts_band_score": 7.0,
+        "correct_answers": 28,
+        "total_questions": 40
+    }
+    """
+    try:
+        submit_answer = get_object_or_404(SubmitAnswer, submit_id=submit_id)
+        service = AnswerComparisonService()
+        summary = service.get_comparison_summary(submit_answer)
+        
+        if summary['success']:
             return Response({
-                'success': True,
-                'correct_count': correct_count,
-                'band_score': band_score,
-                'total_questions': 40
+                'submit_id': submit_id,
+                'ielts_band_score': summary['ielts_band_score'],
+                'correct_answers': summary['correct_answers'],
+                'total_questions': summary['total_questions'],
+                'percentage': summary['percentage']
             }, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.error(f"Error calculating band score: {str(e)}")
-            return Response({
-                'error': f'Failed to calculate band score: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            return Response(summary, status=status.HTTP_400_BAD_REQUEST)
+        
+    except SubmitAnswer.DoesNotExist:
+        return Response(
+            {'error': 'Submission not found'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Server error: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
