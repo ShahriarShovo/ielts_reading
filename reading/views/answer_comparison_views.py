@@ -55,11 +55,11 @@ class CompareSubmissionView(APIView):
                 submit_answer = get_object_or_404(SubmitAnswer, session_id=session_id)
             
             # Check if already processed
-            if submit_answer.is_processed:
-                return Response(
-                    {'error': 'Submission already processed'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # if submit_answer.is_processed:
+            #     return Response(
+            #         {'error': 'Submission already processed'}, 
+            #         status=status.HTTP_400_BAD_REQUEST
+            #     )
             
             service = AnswerComparisonService()
             result = service.compare_submission(submit_answer)
@@ -166,13 +166,13 @@ class BatchCompareSubmissionsView(APIView):
                     submit_answer = get_object_or_404(SubmitAnswer, submit_id=submit_id)
                     
                     # Check if already processed
-                    if submit_answer.is_processed:
-                        results.append({
-                            'submit_id': submit_id,
-                            'status': 'skipped',
-                            'message': 'Already processed'
-                        })
-                        continue
+                    # if submit_answer.is_processed:
+                    #     results.append({
+                    #         'submit_id': submit_id,
+                    #         'status': 'skipped',
+                    #         'message': 'Already processed'
+                    #     })
+                    #     continue
                     
                     # Process submission
                     result = service.compare_submission(submit_answer)
@@ -233,9 +233,9 @@ class GetSubmissionStatusView(APIView):
             
             status_info = {
                 'submit_id': submit_id,
-                'is_processed': submit_answer.is_processed,
+                # 'is_processed': submit_answer.is_processed,
                 'processed_at': submit_answer.processed_at if hasattr(submit_answer, 'processed_at') else None,
-                'status': 'completed' if submit_answer.is_processed else 'pending'
+                # 'status': 'completed' if submit_answer.is_processed else 'pending'
             }
             
             return Response(status_info, status=status.HTTP_200_OK)

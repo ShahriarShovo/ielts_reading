@@ -69,6 +69,8 @@ class SubmitAnswer(models.Model):
     # Whether this submission has been processed for scoring
     is_processed = models.BooleanField(
         default=False,
+        blank=True,
+        null=True,
         help_text="Whether this submission has been processed for scoring"
     )
     

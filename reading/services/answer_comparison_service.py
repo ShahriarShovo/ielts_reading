@@ -1244,5 +1244,5 @@ class AnswerComparisonService:
             'percentage': round(percentage, 2),                 # Overall success percentage
             'ielts_band_score': ielts_band_score,              # Official IELTS band score
             'question_type_breakdown': question_type_breakdown, # Performance by question type
-            'is_processed': submit_answer.is_processed          # Whether submission was processed
+            # 'is_processed': submit_answer.is_processed          # Whether submission was processed
         }
