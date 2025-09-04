@@ -145,7 +145,7 @@ class AnswerComparisonService:
                 
                 # Get correct answers for the test from the database
                 # This fetches the teacher's correct answers for comparison
-                correct_answers = self._get_correct_answers(submit_answer.test_id)
+                correct_answers = self._get_correct_answers(submit_answer.session_id)
                 
                 # Check if correct answers are available
                 if not correct_answers:
@@ -311,22 +311,36 @@ class AnswerComparisonService:
     # CORRECT ANSWERS RETRIEVAL - Fetch teacher's correct answers
     # =============================================================================
     
-    def _get_correct_answers(self, test_id: str) -> Dict[str, Any]:
+    def _get_correct_answers(self, session_id: str) -> Dict[str, Any]:
         """
-        Get correct answers for a specific test from the database.
+        Get correct answers for a specific test from the database using session_id.
         
         This method fetches the teacher's correct answers that will be used
-        for comparison with student answers.
+        for comparison with student answers. It first looks up the session
+        to find the correct test, then retrieves the answers.
         
         Args:
-            test_id: Test identifier (UUID string)
+            session_id: Session identifier from Academiq
             
         Returns:
             Dict mapping question numbers (as strings) to correct answers
             Example: {"1": "A", "2": "True", "3": "climate change"}
         """
         try:
-            # Get the ReadingTest instance from database
+            # First, find the submission by session_id to get the correct test_id
+            submissions = SubmitAnswer.get_submissions_by_session(session_id)
+            
+            if not submissions.exists():
+                print(f"⚠️ No submission found for session_id: {session_id}")
+                return {}
+            
+            # Get the first submission (there should typically be only one per session)
+            submission = submissions.first()
+            test_id = submission.test_id
+            
+            print(f"✅ Found submission for session {session_id}, using test_id: {test_id}")
+            
+            # Get the ReadingTest instance from database using the found test_id
             test = ReadingTest.objects.get(test_id=test_id)
             correct_answers = {}  # Dictionary to store correct answers
             
@@ -347,8 +361,8 @@ class AnswerComparisonService:
             return correct_answers
             
         except ReadingTest.DoesNotExist:
-            # FALLBACK LOGIC: If test not found, try to find any available test
-            print(f"⚠️ Test ID {test_id} not found. Trying fallback to available test...")
+            # FALLBACK LOGIC: If test not found by session, try to find any available test
+            print(f"⚠️ Test not found for session {session_id}. Trying fallback to available test...")
             
             try:
                 # Get the first available ReadingTest

@@ -34,21 +34,21 @@ from .views.create_exam import RandomQuestionsView
 from reading.views.get_student_answer import StudentAnswer
 
 from reading.views.answer_comparison_views import (
-    compare_submission,
-    get_comparison_summary,
-    batch_compare_submissions,
-    get_ielts_band_score
+    CompareSubmissionView,
+    GetComparisonSummaryView,
+    BatchCompareSubmissionsView,
+    GetSubmissionStatusView
 )
 
 app_name = 'reading'
 
 urlpatterns = [
     
-    # Answer Comparison URLs
-    path('compare-submission/', compare_submission, name='compare_submission'),
-    path('comparison-summary/<uuid:submit_id>/', get_comparison_summary, name='comparison_summary'),
-    path('batch-compare/', batch_compare_submissions, name='batch_compare'),
-    path('ielts-band-score/<uuid:submit_id>/', get_ielts_band_score, name='ielts_band_score'),
+    # Answer comparison endpoints
+    path('compare-submission/', CompareSubmissionView.as_view(), name='compare_submission'),
+    path('comparison-summary/<str:submit_id>/', GetComparisonSummaryView.as_view(), name='get_comparison_summary'),
+    path('batch-compare/', BatchCompareSubmissionsView.as_view(), name='batch_compare_submissions'),
+    path('submission-status/<str:submit_id>/', GetSubmissionStatusView.as_view(), name='get_submission_status'),
     
     path('student-answer/<str:session_id>/', StudentAnswer.as_view(), name='student_answer'),
     
