@@ -103,17 +103,23 @@ class SubmitStudentAnswersView(APIView):
                 # Extract test_id from the request data, answers, or derive from session_id
                 test_id = None
                 
-                # Try multiple sources for test_id
-                if answers_data and len(answers_data) > 0:
-                    # Try to get test_id from the first answer
-                    test_id = answers_data[0].get('test_id')
+                # PRIORITY 1: Try request data first (this is what frontend sends)
+                test_id = request.data.get('test_id')
                 
                 if not test_id:
-                    # Fall back to request data
-                    test_id = request.data.get('test_id')
+                # Try multiple sources for test_id
+                # PRIORITY 2: Try to get test_id from the first answer
+                    if answers_data and len(answers_data) > 0:
+                        # Try to get test_id from the first answer
+                        test_id = answers_data[0].get('test_id')
+                
+                # if not test_id:
+                #     # Fall back to request data
+                #     test_id = request.data.get('test_id')
                 
                 if not test_id:
                     # Try to get test_id from exam session data
+                    # PRIORITY 3: Try to get test_id from exam session data
                     test_id = self._get_test_id_from_session(session_id)
                     if test_id:
                         logger.info(f"Found test_id from session data: {test_id}")
@@ -339,7 +345,7 @@ class SubmitStudentAnswersView(APIView):
                         return str(existing_submission.test_id)
                 except ReadingTest.DoesNotExist:
                     logger.warning(f"Existing test_id {existing_submission.test_id} not found in ReadingTest")
-            
+                    
             # Try to find from exam session data (you may need to implement this based on your exam session structure)
             # For now, we'll try to find from any existing student answers
             student_answers = StudentAnswer.objects.filter(session_id=session_id)
@@ -366,6 +372,94 @@ class SubmitStudentAnswersView(APIView):
         except Exception as e:
             logger.error(f"Error getting test_id from session {session_id}: {str(e)}")
             return None
+    
+    
+    # # New function
+    # def _get_test_id_from_session(self, session_id):
+    #     """
+    #     Get the correct test_id for a session from exam session data.
+        
+    #     This method tries to find the test_id from various sources in priority order:
+    #     1. From ReadingExamSession via API call to Academiq (PRIMARY)
+    #     2. From existing SubmitAnswer records
+    #     3. From student answer metadata
+        
+    #     Args:
+    #         session_id: Session ID to find test_id for
+            
+    #     Returns:
+    #         str: Test ID if found, None otherwise
+    #     """
+    #     try:
+    #         # PRIORITY 1: Try to get test_id from ReadingExamSession via API call to Academiq
+    #         try:
+    #             import requests
+    #             academiq_url = f"http://127.0.0.1:8000/api/start-exam/reading-exam-sessions/{session_id}/"
+    #             logger.info(f"Fetching session data from Academiq: {academiq_url}")
+                
+    #             response = requests.get(academiq_url, timeout=10)
+    #             if response.status_code == 200:
+    #                 session_data = response.json()
+    #                 test_id = session_data.get('reading_test_id') or session_data.get('test_id')
+                    
+    #                 if test_id:
+    #                     # Verify this test_id exists in our ReadingTest database
+    #                     from reading.models import ReadingTest
+    #                     try:
+    #                         test = ReadingTest.objects.get(test_id=test_id)
+    #                         if test.passages.exists():
+    #                             logger.info(f"Found valid test_id from ReadingExamSession: {test_id}")
+    #                             return str(test_id)
+    #                     except ReadingTest.DoesNotExist:
+    #                         logger.warning(f"Test_id {test_id} from ReadingExamSession not found in ReadingTest")
+    #                 else:
+    #                     logger.warning(f"No test_id found in ReadingExamSession data: {session_data}")
+    #             else:
+    #                 logger.warning(f"Failed to fetch session from Academiq. Status: {response.status_code}")
+                    
+    #         except requests.exceptions.RequestException as e:
+    #             logger.error(f"Error calling Academiq API for session {session_id}: {str(e)}")
+    #         except Exception as e:
+    #             logger.error(f"Unexpected error fetching session data: {str(e)}")
+
+    #         # PRIORITY 2: Check if there's an existing SubmitAnswer with correct test_id
+    #         existing_submission = SubmitAnswer.objects.filter(session_id=session_id).first()
+    #         if existing_submission:
+    #             # Check if this test_id actually exists and has questions
+    #             from reading.models import ReadingTest
+    #             try:
+    #                 test = ReadingTest.objects.get(test_id=existing_submission.test_id)
+    #                 if test.passages.exists():
+    #                     logger.info(f"Found existing test_id from SubmitAnswer: {existing_submission.test_id}")
+    #                     return str(existing_submission.test_id)
+    #             except ReadingTest.DoesNotExist:
+    #                 logger.warning(f"Existing test_id {existing_submission.test_id} not found in ReadingTest")
+
+    #         # PRIORITY 3: Try to find from student answer metadata
+    #         student_answers = StudentAnswer.objects.filter(session_id=session_id)
+    #         if student_answers.exists():
+    #             # Check if any answer has test_id in metadata
+    #             for answer in student_answers:
+    #                 if isinstance(answer.student_answer, dict):
+    #                     test_id = answer.student_answer.get('test_id')
+    #                     if test_id:
+    #                         # Verify this test_id exists
+    #                         from reading.models import ReadingTest
+    #                         try:
+    #                             test = ReadingTest.objects.get(test_id=test_id)
+    #                             if test.passages.exists():
+    #                                 logger.info(f"Found test_id from student answer metadata: {test_id}")
+    #                                 return str(test_id)
+    #                         except ReadingTest.DoesNotExist:
+    #                             logger.warning(f"Test_id {test_id} from metadata not found in ReadingTest")
+            
+    #         # If no test_id found, return None
+    #         logger.warning(f"No valid test_id found for session {session_id}")
+    #         return None
+            
+    #     except Exception as e:
+    #         logger.error(f"Error getting test_id from session {session_id}: {str(e)}")
+    #         return None
 
 
 @api_view(['GET'])
