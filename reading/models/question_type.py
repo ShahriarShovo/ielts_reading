@@ -45,6 +45,7 @@ class QuestionType(models.Model):
     # This is the planned range, but actual count may differ
     # This is for examiner to understand how many questions to create
     expected_range = models.CharField(max_length=20)
+   
     
     # Student question range - global sequential numbering across all passages
     # This is calculated automatically and shows the actual question numbers for students
