@@ -16,6 +16,10 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
     question_count = serializers.SerializerMethodField()
     remaining_question_slots = serializers.SerializerMethodField()
     
+    # Custom fields for Matching Headings
+    headings = serializers.ListField(required=False, write_only=True)
+    questions = serializers.ListField(required=False, write_only=True)
+    
     class Meta:
         model = QuestionType
         fields = [
@@ -33,7 +37,9 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
             'question_range',
             'processed_instruction',
             'question_count',
-            'remaining_question_slots'
+            'remaining_question_slots',
+            'headings',
+            'questions'
         ]
     
     def get_question_range(self, obj):
@@ -90,7 +96,19 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
         Validate and process questions_data field.
         Ensures options are properly formatted and converts answer to correct_answer.
         For MCMA questions, splits multiple answers into separate questions.
+        For Matching Headings, processes special input format.
         """
+        # Check if this is a Matching Headings question type
+        # If so, use special processing for the input format
+        if self.context.get('question_type') in ['Matching Headings', 'matching-headings']:
+            # For Matching Headings, the input comes as a dict with 'headings' and 'questions'
+            # instead of a list of questions
+            if isinstance(value, dict):
+                return self._process_matching_headings_input(value)
+            else:
+                raise serializers.ValidationError("Matching Headings requires headings and questions structure")
+        
+        # For all other question types, use standard validation
         if not isinstance(value, list):
             raise serializers.ValidationError("questions_data must be a list")
         
@@ -166,7 +184,7 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
                     'Multiple Choice Questions (MCQ)',
                     'Multiple Choice Questions (Multiple Answer)',
                     'Matching Information',
-                    'Matching Headings', 
+                    'Matching Headings',  # Uncommented to enable options processing for Matching Headings
                     'Matching Experts',
                     'Sentence Matching'
                 ]
@@ -219,6 +237,100 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
                 question['question_number'] = question_index + 1
                 processed_questions.append(question)
                 question_index += 1
+        
+        return processed_questions
+
+    def _process_matching_headings_input(self, data):
+        """
+        Process matching-headings input data structure.
+        
+        This method transforms the special matching-headings input format from teacher
+        into the standard database format that can be stored in questions_data field.
+        
+        Input format:
+        {
+            "headings": [
+                {"number": "i", "text": "heading 1", "is_used": true},
+                {"number": "ii", "text": "heading 2", "is_used": true}
+            ],
+            "questions": [
+                {"paragraph": "A", "correct_heading": "i"},
+                {"paragraph": "B", "correct_heading": "ii"}
+            ]
+        }
+        
+        Output format:
+        [
+            {
+                "question_text": "i. heading 1",
+                "correct_answer": "i",
+                "question_number": 1
+            }
+        ]
+        
+        Args:
+            data (dict): The input data containing headings and questions
+            
+        Returns:
+            list: Processed questions in database format
+        """
+        # Extract headings and questions from input data
+        headings = data.get('headings', [])
+        questions = data.get('questions', [])
+        
+        
+        # Validate that we have the required data
+        if not headings:
+            raise serializers.ValidationError("Headings list is required for Matching Headings")
+        if not questions:
+            raise serializers.ValidationError("Questions list is required for Matching Headings")
+        
+        # Initialize the processed questions list
+        processed_questions = []
+        
+        # Create options array with all heading numbers (i, ii, iii, iv, v...)
+        heading_options = [h['number'] for h in headings]
+        
+        # Create option_texts mapping: Roman numeral -> heading text
+        heading_option_texts = {}
+        for heading in headings:
+            if not isinstance(heading, dict):
+                raise serializers.ValidationError("Each heading must be a dictionary")
+            
+            # Check required fields in heading
+            if 'number' not in heading or 'text' not in heading:
+                raise serializers.ValidationError("Each heading must have 'number' and 'text' fields")
+            
+            heading_option_texts[heading['number']] = heading['text']
+        
+        
+        # Process each paragraph question (A, B, C, D, E...)
+        for question in questions:
+            if not isinstance(question, dict):
+                raise serializers.ValidationError("Each question must be a dictionary")
+            
+            if 'paragraph' not in question or 'correct_heading' not in question:
+                raise serializers.ValidationError("Each question must have 'paragraph' and 'correct_heading' fields")
+            
+            # Validate that the correct_heading exists in headings list
+            valid_heading_numbers = [h['number'] for h in headings]
+            if question['correct_heading'] not in valid_heading_numbers:
+                raise serializers.ValidationError(f"Question for paragraph {question['paragraph']} references invalid heading: {question['correct_heading']}")
+            
+            # Create question text as "Paragraph A", "Paragraph B", etc.
+            question_text = f"Paragraph {question['paragraph']}"
+            
+            # Set correct answer as the heading number (i, ii, iii, etc.)
+            correct_answer = question['correct_heading']
+            
+            # Add to processed questions list
+            processed_questions.append({
+                'question_text': question_text,
+                'correct_answer': correct_answer,
+                'question_number': len(processed_questions) + 1,  # Will be updated with global numbering later
+                'options': heading_options,  # All heading numbers as options
+                'option_texts': heading_option_texts  # Roman numeral -> heading text mapping
+            })
         
         return processed_questions
 
@@ -359,7 +471,34 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
         """
         Create a new QuestionType instance with proper questions_data processing.
         """
-        # Process questions_data before saving
+        # Special processing for Matching Headings question type
+        if 'type' in validated_data and validated_data['type'] in ['Matching Headings', 'matching-headings']:
+            # Set the question type context for validation
+            self.context['question_type'] = 'Matching Headings'
+            
+            # For Matching Headings, we expect the input to have 'headings' and 'questions' fields
+            # instead of 'questions_data' field
+            if 'headings' in validated_data and 'questions' in validated_data:
+                # Transform the special input format to standard questions_data format
+                # This will be processed by the _process_matching_headings_input method
+                matching_headings_data = {
+                    'headings': validated_data.pop('headings'),  # Remove from validated_data
+                    'questions': validated_data.pop('questions')  # Remove from validated_data
+                }
+                
+                # Set the transformed data as questions_data
+                validated_data['questions_data'] = matching_headings_data
+                
+                # Process the matching headings data immediately
+                processed_data = self._process_matching_headings_input(validated_data['questions_data'])
+                validated_data['questions_data'] = processed_data
+        
+        # Remove any remaining custom fields that are not part of the model
+        # These fields are only used for processing and should not be passed to the model
+        validated_data.pop('headings', None)
+        validated_data.pop('questions', None)
+        
+        # Process questions_data before saving (for all question types)
         if 'questions_data' in validated_data:
             # Get the starting question number based on existing questions in the passage
             passage = validated_data.get('passage')
@@ -376,14 +515,22 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
                 logger.info(f"Calculated starting number: {starting_number}")
                 logger.info(f"Questions to process: {len(validated_data['questions_data'])}")
                 
-                # Pass question type context for proper options handling
-                question_type = validated_data.get('type', '')
-                self.context['question_type'] = question_type
-                
-                validated_data['questions_data'] = self._process_questions_with_numbering(
-                    validated_data['questions_data'], 
-                    starting_number=starting_number
-                )
+                # Special handling for Matching Headings - skip _process_questions_with_numbering
+                # to preserve the correct options and option_texts
+                if validated_data.get('type') in ['Matching Headings', 'matching-headings']:
+                    # For Matching Headings, just update the question numbers
+                    for i, question in enumerate(validated_data['questions_data']):
+                        question['question_number'] = starting_number + i
+                else:
+                    # For other question types, use the standard processing
+                    # Pass question type context for proper options handling
+                    question_type = validated_data.get('type', '')
+                    self.context['question_type'] = question_type
+                    
+                    validated_data['questions_data'] = self._process_questions_with_numbering(
+                        validated_data['questions_data'], 
+                        starting_number=starting_number
+                    )
             else:
                 validated_data['questions_data'] = self.validate_questions_data(validated_data['questions_data'])
         
@@ -393,7 +540,33 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
         """
         Update an existing QuestionType instance with proper questions_data processing.
         """
-        # Process questions_data before saving
+        # Special processing for Matching Headings question type
+        if instance.type in ['Matching Headings', 'matching-headings']:
+            # Set the question type context for validation
+            self.context['question_type'] = 'Matching Headings'
+            
+            # For Matching Headings, we expect the input to have 'headings' and 'questions' fields
+            # instead of 'questions_data' field
+            if 'headings' in validated_data and 'questions' in validated_data:
+                # Transform the special input format to standard questions_data format
+                # This will be processed by the _process_matching_headings_input method
+                matching_headings_data = {
+                    'headings': validated_data.pop('headings'),  # Remove from validated_data
+                    'questions': validated_data.pop('questions')  # Remove from validated_data
+                }
+                # Set the transformed data as questions_data
+                validated_data['questions_data'] = matching_headings_data
+                
+                # Process the matching headings data immediately
+                processed_data = self._process_matching_headings_input(validated_data['questions_data'])
+                validated_data['questions_data'] = processed_data
+        
+        # Remove any remaining custom fields that are not part of the model
+        # These fields are only used for processing and should not be passed to the model
+        validated_data.pop('headings', None)
+        validated_data.pop('questions', None)
+        
+        # Process questions_data before saving (for all question types)
         if 'questions_data' in validated_data:
             # Get the starting question number based on existing questions in the passage
             passage = instance.passage
