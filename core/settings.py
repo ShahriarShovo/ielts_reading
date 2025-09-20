@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
+    'drf_yasg',  # Swagger API documentation
     'reading' 
 ]
 
@@ -209,6 +210,37 @@ CORS_ALLOWED_ORIGINS = [
     "https://localhost",
     "https://127.0.0.1",
 ]
+
+# Swagger Settings
+SWAGGER_SETTINGS = {
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header',
+            'description': 'JWT token for authentication. Format: Bearer <token>'
+        }
+    },
+    'USE_SESSION_AUTH': False,
+    'JSON_EDITOR': True,
+    'SUPPORTED_SUBMIT_METHODS': [
+        'get',
+        'post',
+        'put',
+        'delete',
+        'patch'
+    ],
+    'OPERATIONS_SORTER': 'alpha',
+    'TAGS_SORTER': 'alpha',
+    'DOC_EXPANSION': 'none',
+    'DEEP_LINKING': True,
+    'SHOW_EXTENSIONS': True,
+    'SHOW_COMMON_EXTENSIONS': True,
+}
+
+REDOC_SETTINGS = {
+    'LAZY_RENDERING': False,
+}
 
 # API Key for cross-project communication
 CROSS_PROJECT_API_KEY = 'your-secret-api-key-here-12345'
