@@ -43,7 +43,6 @@ class PassageSerializer(serializers.ModelSerializer):
             'test',              # Foreign key to the parent test
             'title',             # Human-readable title for the passage (optional)
             'subtitle',          # Subtitle for the passage (optional)
-            'instruction',       # IELTS-style instruction text for students
             'text',              # The actual reading text content
             'order',             # Order of this passage within the test
             'has_paragraphs',    # Whether this passage has paragraph structure
@@ -140,32 +139,6 @@ class PassageSerializer(serializers.ModelSerializer):
         # Check if title is not too long
         if len(value) > 255:
             raise serializers.ValidationError("Title cannot exceed 255 characters.")
-        
-        return value.strip()
-    
-    def validate_instruction(self, value):
-        """
-        Validate the instruction field.
-        
-        This method ensures that the instruction has a reasonable length if provided.
-        Since instruction is optional, empty values are allowed.
-        
-        Args:
-            value (str): The instruction value to validate
-            
-        Returns:
-            str: The validated instruction (or None if empty)
-            
-        Raises:
-            serializers.ValidationError: If validation fails
-        """
-        # Instruction is optional, so None or empty string is valid
-        if value is None or value == '':
-            return None
-        
-        # Check if instruction is not too long
-        if len(value) > 1000:
-            raise serializers.ValidationError("Instruction cannot exceed 1000 characters.")
         
         return value.strip()
     

@@ -1,108 +1,70 @@
 from django.urls import path
-from .views import (
-    # REST API Views
-    ReadingQuestionView,
-    PassageView,
-    ReadingTestView,
-    QuestionTypeConfigView,
-    QuestionTypeView,
-    # NEW: IELTS Instruction System Views
-    QuestionRangeView,
-    QuestionRangeByPassageView,
-    QuestionReorderView,
-    QuestionReorderByPassageView,
-    TemplateApplicationView,
-    TemplateInfoView,
-)
+from .views import PassageView, ReadingTestView, QuestionTypeView
 from .views.question_count_view import QuestionCountView
-
-from .views.test_answers import get_test_answers
-from .views.student_answer_views import (
-    SubmitStudentAnswersView, 
-    get_exam_results, 
-    get_student_answers_for_comparison,
-    update_student_answer_results
-)
-
-# from .views.answer_comparison_views import (
-#     CompareAnswersView,
-#     BandScoreCalculationView
-# )
-
-from .views.create_exam import RandomQuestionsView
-
-from reading.views.get_student_answer import StudentAnswer
-
-from reading.views.answer_comparison_views import (
+from .views.get_random_questions import RandomQuestionsView
+from .views.student_answer_views import SubmitStudentAnswersView
+from .views.answer_comparison_views import (
     CompareSubmissionView,
     GetComparisonSummaryView,
-    BatchCompareSubmissionsView,
-    GetSubmissionStatusView
+    BatchCompareSubmissionsView
 )
 
-app_name = 'reading'
+# URL patterns for the reading app
+# Base URL: /api/reading/
+# 
+# Available endpoints:
+# 
+# Reading Tests:
+# - GET    /api/reading/tests/                    - List all tests
+# - POST   /api/reading/tests/                    - Create new test
+# - GET    /api/reading/tests/{test_id}/          - Get specific test
+# - PUT    /api/reading/tests/{test_id}/          - Update test
+# - DELETE /api/reading/tests/{test_id}/          - Delete test
+# 
+# Passages:
+# - GET    /api/reading/passages/                 - List all passages
+# - POST   /api/reading/passages/                 - Create passage
+# - GET    /api/reading/passages/{passage_id}/    - Get specific passage
+# - PUT    /api/reading/passages/{passage_id}/    - Update passage
+# - DELETE /api/reading/passages/{passage_id}/    - Delete passage
+# 
+# Question Types:
+# - GET    /api/reading/question-types/           - List all question types
+# - POST   /api/reading/question-types/          - Create question type
+# - GET    /api/reading/question-types/{id}/      - Get specific question type
+# - PUT    /api/reading/question-types/{id}/      - Update question type
+# - DELETE /api/reading/question-types/{id}/      - Delete question type
+# 
+# Query Parameters:
+# - organization_id: Filter by organization
+# - test_id: Filter by test ID
+# - passage_id: Filter by passage ID
+# - type: Filter by question type
 
 urlpatterns = [
+    # Reading Test endpoints
+    path('tests/', ReadingTestView.as_view(), name='reading-test-list'),
+    path('tests/<uuid:test_id>/', ReadingTestView.as_view(), name='reading-test-detail'),
     
-    # Answer comparison endpoints
-    path('compare-submission/', CompareSubmissionView.as_view(), name='compare_submission'),
-    path('comparison-summary/<str:submit_id>/', GetComparisonSummaryView.as_view(), name='get_comparison_summary'),
-    path('batch-compare/', BatchCompareSubmissionsView.as_view(), name='batch_compare_submissions'),
-    path('submission-status/<str:submit_id>/', GetSubmissionStatusView.as_view(), name='get_submission_status'),
+    # Passage endpoints
+    path('passages/', PassageView.as_view(), name='passage-list'),
+    path('passages/<uuid:passage_id>/', PassageView.as_view(), name='passage-detail'),
     
-    path('student-answer/<str:session_id>/', StudentAnswer.as_view(), name='student_answer'),
+    # Question Type endpoints
+    path('question-types/', QuestionTypeView.as_view(), name='question-type-list'),
+    path('question-types/<uuid:question_type_id>/', QuestionTypeView.as_view(), name='question-type-detail'),
     
-    # REST API URLs for Reading Tests (UUID-based)
-    path('tests/', ReadingTestView.as_view(), name='api_tests'),
-    path('tests/<uuid:test_id>/', ReadingTestView.as_view(), name='api_test_detail'),
+    # Question Count endpoint
+    path('question-count/', QuestionCountView.as_view(), name='question-count'),
     
-    # Question Count API
-    path('question-count/', QuestionCountView.as_view(), name='api_question_count'),
-    
-    # REST API URLs for Reading Passages (UUID-based)
-    path('passages/', PassageView.as_view(), name='api_passages'),
-    path('passages/<uuid:passage_id>/', PassageView.as_view(), name='api_passage_detail'),
-    
-    # REST API URLs for Question Types (UUID-based)
-    path('question-types/', QuestionTypeView.as_view(), name='api_question_types'),
-    path('question-types/<uuid:question_type_id>/', QuestionTypeView.as_view(), name='api_question_type_detail'),
-    
-    # REST API URLs for Reading Questions (Legacy - for backward compatibility)
-    path('questions/', ReadingQuestionView.as_view(), name='api_questions'),
-    path('questions/<int:pk>/', ReadingQuestionView.as_view(), name='api_question_detail'),
-    
-    # REST API URLs for Question Type Configuration
-    path('question-type-config/', QuestionTypeConfigView.as_view(), name='api_question_type_config'),
-    path('question-type-config/<int:pk>/', QuestionTypeConfigView.as_view(), name='api_question_type_config_detail'),
-    
-    # NEW: IELTS Instruction System URLs
-    
-    # Question Range Management
-    path('question-ranges/', QuestionRangeView.as_view(), name='api_question_ranges'),
-    path('question-ranges/<int:passage_id>/', QuestionRangeByPassageView.as_view(), name='api_question_ranges_by_passage'),
-    
-    # Question Reordering
-    path('question-reorder/', QuestionReorderView.as_view(), name='api_question_reorder'),
-    path('question-reorder/<int:passage_id>/', QuestionReorderByPassageView.as_view(), name='api_question_reorder_by_passage'),
-    
-    # Template Application
-    path('templates/apply/', TemplateApplicationView.as_view(), name='api_templates_apply'),
-    path('templates/info/', TemplateInfoView.as_view(), name='api_templates_info'),
-    
+    # Random questions endpoint for student exams
     path('random-questions/', RandomQuestionsView.as_view(), name='random-questions'),
     
-    # Test Answers API (for Academiq integration)
-    path('test-answers/<uuid:test_id>/', get_test_answers, name='test-answers'),
-    
-    # Student Answer Submission API
+    # Student Answer Submission API (called by Academiq)
     path('submit-answers/', SubmitStudentAnswersView.as_view(), name='submit-answers'),
-    path('exam-results/<str:session_id>/', get_exam_results, name='exam-results'),
     
-    # Student Answer Comparison API (for Academiq)
-    path('student-answers/<str:session_id>/', get_student_answers_for_comparison, name='student-answers-for-comparison'),
-    path('update-results/<str:session_id>/', update_student_answer_results, name='update-student-results'),
-    
-    # Answer Comparison and Scoring API
-    # path('compare-answers/', CompareAnswersView.as_view(), name='compare-answers'),
-    # path('calculate-band-score/', BandScoreCalculationView.as_view(), name='calculate-band-score'),
+    # Answer Comparison APIs
+    path('compare-submission/', CompareSubmissionView.as_view(), name='compare-submission'),
+    path('comparison-summary/<str:submit_id>/', GetComparisonSummaryView.as_view(), name='comparison-summary'),
+    path('batch-compare/', BatchCompareSubmissionsView.as_view(), name='batch-compare'),
 ]

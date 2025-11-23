@@ -1,6 +1,5 @@
 from django.contrib import admin
-from .models import ReadingTest, Passage, Question, QuestionType, QuestionTypeConfig
-from .models.test_registry import TestRegistry
+from .models import ReadingTest, Passage, QuestionType
 from .models.student_answer import StudentAnswer
 from .models.submit_answer import SubmitAnswer
 
@@ -19,7 +18,7 @@ class PassageAdmin(admin.ModelAdmin):
     list_filter = ['test', 'order']
     search_fields = ['title', 'subtitle', 'text', 'test__test_name']
     ordering = ['test', 'order']
-    readonly_fields = ['passage_id', 'get_question_range']
+    readonly_fields = ['passage_id', 'get_question_type_count', 'get_total_question_count', 'get_question_range']
     
     # ADD THIS FIELDSETS SECTION:
     fieldsets = (
@@ -27,7 +26,7 @@ class PassageAdmin(admin.ModelAdmin):
             'fields': ('test', 'title', 'subtitle', 'order')
         }),
         ('Content', {
-            'fields': ('text', 'instruction')
+            'fields': ('text',)
         }),
         ('Question Information', {
             'fields': ('get_question_type_count', 'get_total_question_count', 'get_question_range'),
@@ -102,67 +101,5 @@ class QuestionTypeAdmin(admin.ModelAdmin):
             return f"Error: {str(e)[:20]}..."
     get_dynamic_question_range.short_description = 'Dynamic Range'
 
-@admin.register(Question)
-class QuestionAdmin(admin.ModelAdmin):
-    list_display = ['question_text', 'question_type', 'number', 'answer', 'points', 'get_full_question_number']
-    list_filter = ['question_type__type', 'question_type__passage__test']
-    search_fields = ['question_text', 'question_type__type', 'answer']
-    ordering = ['question_type', 'number']
-    readonly_fields = ['question_id', 'created_at', 'updated_at', 'get_full_question_number']
-
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('question_type', 'question_text', 'number', 'answer', 'points')
-        }),
-        ('Options & Configuration', {
-            'fields': ('options', 'word_limit'),
-            'description': 'Options for MCQ questions, word limit for completion questions'
-        }),
-        ('Additional Information', {
-            'fields': ('explanation', 'image'),
-            'classes': ('collapse',)
-        }),
-        ('System Information', {
-            'fields': ('get_full_question_number', 'created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
-
-    def get_full_question_number(self, obj):
-        return obj.get_full_question_number()
-    get_full_question_number.short_description = 'Full Question Number'
-
-@admin.register(QuestionTypeConfig)
-class QuestionTypeConfigAdmin(admin.ModelAdmin):
-    list_display = ['type_code', 'display_name', 'is_active', 'requires_options', 'requires_word_limit']
-    list_filter = ['is_active', 'requires_options', 'requires_multiple_answers', 'requires_word_limit', 'requires_image']
-    search_fields = ['type_code', 'display_name', 'description']
-    ordering = ['display_name']
-    
-    fieldsets = (
-        ('Basic Configuration', {
-            'fields': ('type_code', 'display_name', 'description', 'is_active')
-        }),
-        ('Field Requirements', {
-            'fields': ('requires_options', 'requires_multiple_answers', 'requires_word_limit', 'requires_image'),
-            'description': 'Configuration flags for field requirements'
-        }),
-        ('IELTS Template System', {
-            'fields': ('default_instruction', 'default_answer_format', 'template_examples', 'word_limit_rules'),
-            'classes': ('collapse',),
-            'description': 'IELTS instruction templates and configuration'
-        }),
-    )
-    
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        form.base_fields['default_instruction'].help_text = "Default IELTS instruction text with {question_range} placeholder"
-        form.base_fields['default_answer_format'].help_text = "Default answer format with {question_range} placeholder"
-        form.base_fields['template_examples'].help_text = "JSON array of template examples for frontend integration"
-        form.base_fields['word_limit_rules'].help_text = "Word limit rules and configurations in JSON format"
-        return form
-    
-    
-admin.site.register(TestRegistry)
 admin.site.register(StudentAnswer)
 admin.site.register(SubmitAnswer)

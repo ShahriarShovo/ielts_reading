@@ -35,11 +35,6 @@ class Passage(models.Model):
     # This provides additional context or subtitle for the passage
     subtitle = models.CharField(max_length=255, blank=True, null=True, help_text="Optional subtitle for the passage (e.g., 'The Impact on Global Ecosystems')")
     
-    # IELTS-style instruction text for students (optional)
-    # This tells students how much time to spend and which questions to answer
-    # Example: "You should spend about 20 minutes on Questions 1-13, which are based on Reading Passage 1 below."
-    instruction = models.TextField(blank=True, null=True)
-    
     # The main text content of the passage
     # This is the actual reading material that students will read
     text = models.TextField()

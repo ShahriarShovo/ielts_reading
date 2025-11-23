@@ -5,9 +5,5 @@
 # and integration between different parts of the reading system.
 # =============================================================================
 
-# Import service classes for easy access
-from .test_registry_service import TestRegistryService
-
-__all__ = [
-    'TestRegistryService',
-]
+# No services currently - TestRegistryService has been removed
+__all__ = []
