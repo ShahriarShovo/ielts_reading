@@ -70,6 +70,11 @@ class QuestionTypeAdmin(admin.ModelAdmin):
             'fields': ('instruction_template', 'get_processed_instruction'),
             'description': 'Use placeholders: {start}, {end}, {passage_number}'
         }),
+        ('Image (for Diagram/Flow Chart questions)', {
+            'fields': ('image',),
+            'description': 'Upload image for Diagram Label Completion or Flow Chart Completion questions',
+            'classes': ('collapse',)
+        }),
         ('Questions Data', {
             'fields': ('questions_data', 'get_question_range'),
             'description': 'JSON array of individual questions'

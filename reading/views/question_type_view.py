@@ -76,15 +76,33 @@ class QuestionTypeView(APIView):
                     'message': 'Passage not found'
                 }, status=status.HTTP_404_NOT_FOUND)
             
+            # Debug: Log request data for diagram label completion
+            if request.data.get('type') in ['Diagram Label Completion', 'diagram-label-completion']:
+                logger.info(f"=== DIAGRAM LABEL COMPLETION CREATE DEBUG ===")
+                logger.info(f"Request data type: {request.data.get('type')}")
+                logger.info(f"Request data expected_range: {request.data.get('expected_range')}")
+                logger.info(f"Request data actual_count: {request.data.get('actual_count')}")
+                logger.info(f"Request data keys: {list(request.data.keys())}")
+            
             # Validate and create the question type
             serializer = QuestionTypeSerializer(
                 data=request.data,
                 context={'passage': passage}
             )
             if serializer.is_valid():
+                # Debug: Log validated data
+                if request.data.get('type') in ['Diagram Label Completion', 'diagram-label-completion']:
+                    logger.info(f"Validated data expected_range: {serializer.validated_data.get('expected_range')}")
+                    logger.info(f"Validated data actual_count: {serializer.validated_data.get('actual_count')}")
+                
                 # Use transaction to ensure data consistency
                 with transaction.atomic():
                     question_type = serializer.save()
+                    
+                    # Debug: Log saved question type
+                    if question_type.type in ['Diagram Label Completion', 'diagram-label-completion']:
+                        logger.info(f"Saved question_type.expected_range: {question_type.expected_range}")
+                        logger.info(f"Saved question_type.actual_count: {question_type.actual_count}")
                 
                 # Log successful creation
                 logger.info(f"Successfully created question type: {question_type.question_type_id}")
