@@ -44,14 +44,18 @@ class SharedAuthPermission(BasePermission):
         Returns:
             bool: True if token is valid and user has permission, False otherwise
         """
-        logger.info(f"=== SHARED AUTH PERMISSION CALLED ===")
-        logger.info(f"Request path: {request.path}")
-        logger.info(f"Request method: {request.method}")
-        
         try:
-            # Get JWT token from Authorization header (format: "Bearer <token>")
+            # CHECK 1: Internal service call from Academiq (skip verify-token round trip)
+            internal_service = request.headers.get('X-Internal-Service')
+            if internal_service == 'academiq':
+                # Trust internal calls - Academiq already verified the user
+                request.user_id = request.headers.get('X-Verified-User-ID')
+                request.organization_id = request.headers.get('X-Organization-ID')
+                request.user_email = request.headers.get('X-Verified-User-Email')
+                return True
+            
+            # CHECK 2: External call - verify JWT token
             auth_header = request.headers.get('Authorization')
-            logger.info(f"Authorization header: {auth_header}")
             
             # Validate that Authorization header exists and has Bearer format
             if not auth_header or not auth_header.startswith('Bearer '):
@@ -60,13 +64,10 @@ class SharedAuthPermission(BasePermission):
             
             # Extract token from "Bearer <token>" format
             token = auth_header.split(' ')[1]
-            logger.info(f"Extracted token: {token[:50]}...")  # Log first 50 chars for security
             
             # Call authentication project's shared service to verify token
             auth_service_url = 'http://127.0.0.1:8000/api/user/auth/verify-token/'
-            logger.info(f"Calling auth service at: {auth_service_url}")
             
-            logger.info(f"Sending request to auth service with token: {token[:20]}...")
             # Make HTTP POST request to authentication project
             try:
                 response = requests.post(
@@ -75,13 +76,9 @@ class SharedAuthPermission(BasePermission):
                     headers={'Content-Type': 'application/json'},
                     timeout=10  # 10 second timeout to prevent hanging
                 )
-                logger.info(f"Auth service response received: {response.status_code}")
             except requests.exceptions.RequestException as e:
                 logger.error(f"Request to auth service failed: {str(e)}")
                 return False
-            
-            logger.info(f"Auth service response status: {response.status_code}")
-            logger.info(f"Auth service response: {response.text}")
             
             # If authentication was successful (200 status)
             if response.status_code == 200:
@@ -90,11 +87,10 @@ class SharedAuthPermission(BasePermission):
                 request.user_id = user_data.get('user_id')
                 request.organization_id = user_data.get('organization_id')
                 request.user_email = user_data.get('user_email')
-                logger.info(f"Token verified successfully for user: {user_data.get('user_email')}")
                 return True
             else:
                 # Token verification failed
-                logger.error(f"Token verification failed: {response.status_code} - {response.text}")
+                logger.error(f"Token verification failed: {response.status_code}")
                 return False
                 
         except requests.exceptions.RequestException as e:

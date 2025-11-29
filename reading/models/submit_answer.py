@@ -138,7 +138,7 @@ class SubmitAnswer(models.Model):
         Returns:
             QuerySet: All StudentAnswer records linked to this submission
         """
-        return self.student_answers.all().order_by('question_number')
+        return self.student_answers.select_related('question_type').order_by('question_number')
     
     def get_correct_answers(self):
         """
@@ -157,9 +157,10 @@ class SubmitAnswer(models.Model):
     def mark_as_processed(self):
         """
         Mark this submission as processed.
+        Uses update_fields for faster partial update.
         """
         self.is_processed = True
-        self.save()
+        self.save(update_fields=['is_processed'])
     
     def get_submission_summary(self):
         """

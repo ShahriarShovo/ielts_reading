@@ -128,86 +128,94 @@ class AnswerComparisonService:
             - processing timestamp
         """
         try:
-            # Use database transaction to ensure data consistency
-            # If any part fails, all changes are rolled back
-            with transaction.atomic():
-                
-                # Get all student answers for this submission
-                # This fetches all individual answers linked to the submission
-                student_answers = submit_answer.get_student_answers()
-                
-                # Check if there are any answers to process
-                if not student_answers.exists():
-                    return {
-                        'success': False,
-                        'error': 'No student answers found for this submission'
-                    }
-                
-                # Get correct answers for the test from the database
-                # This fetches the teacher's correct answers for comparison
-                correct_answers = self._get_correct_answers(submit_answer.session_id)
-                
-                # Check if correct answers are available
-                if not correct_answers:
-                    return {
-                        'success': False,
-                        'error': 'No correct answers found for this test'
-                    }
-                
-                # Initialize variables for processing
-                results = []           # Store results for each question
-                correct_count = 0      # Count total correct answers
-                total_questions = len(student_answers)  # Total questions answered
-                
-                # Process each individual answer
-                for student_answer in student_answers:
-                    # Compare this student answer with the correct answer
-                    result = self._compare_single_answer(
-                        student_answer,      # Current student answer
-                        correct_answers,     # All correct answers
-                        submit_answer.test_id  # Test context
-                    )
-                    
-                    # Add result to our collection
-                    results.append(result)
-                    
-                    # Count correct answers for IELTS scoring
-                    if result['is_correct']:
-                        correct_count += 1
-                    
-                    # Update the student answer record with comparison result
-                    # This marks the answer as scored and stores the result
-                    student_answer.mark_as_scored(
-                        is_correct=result['is_correct'],  # Whether answer is correct
-                        band_score=result.get('band_score')  # Individual question score (if applicable)
-                    )
-                
-                # Calculate IELTS band score based on total correct answers
-                # This uses the official IELTS scoring system
-                ielts_band_score = self._calculate_ielts_band_score(correct_count, total_questions)
-                
-                # Mark the submission as processed to prevent duplicate processing
-                submit_answer.mark_as_processed()
-                
-                # Calculate overall results and grades
-                overall_result = self._calculate_overall_result(correct_count, total_questions)
-                
-                # Return comprehensive result dictionary
+            # Get all student answers for this submission
+            student_answers = submit_answer.get_student_answers()
+            
+            # Check if there are any answers to process
+            if not student_answers.exists():
                 return {
-                    'success': True,                                    # Processing successful
-                    'submission_id': str(submit_answer.submit_id),      # Submission identifier
-                    'session_id': submit_answer.session_id,             # Exam session ID
-                    'student_id': submit_answer.student_id,             # Student identifier
-                    'test_id': str(submit_answer.test_id),              # Test identifier
-                    'total_questions': total_questions,                 # Total questions answered
-                    'correct_answers': correct_count,                   # Number of correct answers
-                    'incorrect_answers': total_questions - correct_count,  # Number of incorrect answers
-                    'percentage': round((correct_count / total_questions * 100), 2) if total_questions > 0 else 0,  # Success percentage
-                    'ielts_band_score': ielts_band_score,              # Official IELTS band score
-                    'overall_grade': overall_result['grade'],           # Letter grade (A+, B, C, etc.)
-                    'detailed_results': results,                        # Detailed results for each question
-                    'processed_at': timezone.now().isoformat()          # Processing timestamp
+                    'success': False,
+                    'error': 'No student answers found for this submission'
                 }
+            
+            # Get correct answers for the test from the database
+            correct_answers = self._get_correct_answers(submit_answer.session_id)
+            
+            # Check if correct answers are available
+            if not correct_answers:
+                return {
+                    'success': False,
+                    'error': 'No correct answers found for this test'
+                }
+            
+            # Initialize variables for processing
+            results = []           # Store results for each question
+            correct_count = 0      # Count total correct answers
+            
+            # Convert queryset to list once (avoid multiple DB hits)
+            student_answers_list = list(student_answers)
+            total_questions = len(student_answers_list)
+            
+            # Check if already processed - skip DB updates if so
+            already_processed = submit_answer.is_processed
+            answers_to_update = [] if already_processed else []
+            
+            # Process each individual answer
+            for student_answer in student_answers_list:
+                # Compare this student answer with the correct answer
+                result = self._compare_single_answer(
+                    student_answer,      # Current student answer
+                    correct_answers,     # All correct answers
+                    submit_answer.test_id  # Test context
+                )
+                
+                # Add result to our collection
+                results.append(result)
+                
+                # Count correct answers for IELTS scoring
+                if result['is_correct']:
+                    correct_count += 1
+                
+                # Only update DB if not already processed
+                if not already_processed:
+                    student_answer.is_correct = result['is_correct']
+                    student_answer.band_score = result.get('band_score')
+                    student_answer.scored_at = timezone.now()
+                    answers_to_update.append(student_answer)
+            
+            # BULK UPDATE: Only if not already processed
+            if answers_to_update:
+                from reading.models import StudentAnswer
+                StudentAnswer.objects.bulk_update(
+                    answers_to_update, 
+                    ['is_correct', 'band_score', 'scored_at'],
+                    batch_size=100
+                )
+                # Mark as processed only on first time
+                submit_answer.mark_as_processed()
+            
+            # Calculate IELTS band score based on total correct answers
+            ielts_band_score = self._calculate_ielts_band_score(correct_count, total_questions)
+            
+            # Calculate overall results and grades
+            overall_result = self._calculate_overall_result(correct_count, total_questions)
+            
+            # Return comprehensive result dictionary
+            return {
+                'success': True,
+                'submission_id': str(submit_answer.submit_id),
+                'session_id': submit_answer.session_id,
+                'student_id': submit_answer.student_id,
+                'test_id': str(submit_answer.test_id),
+                'total_questions': total_questions,
+                'correct_answers': correct_count,
+                'incorrect_answers': total_questions - correct_count,
+                'percentage': round((correct_count / total_questions * 100), 2) if total_questions > 0 else 0,
+                'ielts_band_score': ielts_band_score,
+                'overall_grade': overall_result['grade'],
+                'detailed_results': results,
+                'processed_at': timezone.now().isoformat()
+            }
                 
         except Exception as e:
             # If any error occurs during processing, return error details
@@ -341,21 +349,25 @@ class AnswerComparisonService:
             print(f"✅ Found submission for session {session_id}, using test_id: {test_id}")
             
             # Get the ReadingTest instance from database using the found test_id
-            test = ReadingTest.objects.get(test_id=test_id)
+            # Use prefetch_related to avoid N+1 query problem (single query instead of many)
+            test = ReadingTest.objects.prefetch_related(
+                'passages',
+                'passages__questions'
+            ).get(test_id=test_id)
             correct_answers = {}  # Dictionary to store correct answers
             
             # Simple sequential question counter (1, 2, 3, 4...)
             question_counter = 1
             
-            # Iterate through all passages in the test
+            # Iterate through all passages in the test (now uses prefetched data)
             for passage in test.passages.all():
                 # Iterate through all question types in each passage
-                    for question_type in passage.questions.all():
-                        # Iterate through all questions in each question type
-                        for question in question_type.questions_data:
-                            # Store the correct answer with sequential question number
-                            correct_answers[str(question_counter)] = question.get('correct_answer')
-                            question_counter += 1
+                for question_type in passage.questions.all():
+                    # Iterate through all questions in each question type
+                    for question in question_type.questions_data:
+                        # Store the correct answer with sequential question number
+                        correct_answers[str(question_counter)] = question.get('correct_answer')
+                        question_counter += 1
             
             # Return the dictionary of correct answers
             return correct_answers
@@ -365,15 +377,18 @@ class AnswerComparisonService:
             print(f"⚠️ Test not found for session {session_id}. Trying fallback to available test...")
             
             try:
-                # Get the first available ReadingTest
-                available_test = ReadingTest.objects.first()
+                # Get the first available ReadingTest with prefetch for optimization
+                available_test = ReadingTest.objects.prefetch_related(
+                    'passages',
+                    'passages__questions'
+                ).first()
                 if available_test:
                     print(f"✅ Using fallback test: {available_test.test_name} (ID: {available_test.test_id})")
                     
                     correct_answers = {}  # Dictionary to store correct answers
                     question_counter = 1
                     
-                    # Iterate through all passages in the fallback test
+                    # Iterate through all passages in the fallback test (uses prefetched data)
                     for passage in available_test.passages.all():
                         # Iterate through all question types in each passage
                         for question_type in passage.questions.all():
