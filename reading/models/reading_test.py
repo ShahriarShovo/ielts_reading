@@ -75,14 +75,40 @@ class ReadingTest(models.Model):
         """
         Helper method to get the total number of questions across all passages.
         
+        This method counts only questions numbered 1-40 (actual IELTS questions),
+        excluding any context or helper questions outside this range.
+        
         This is useful for test statistics and validation.
-        Returns the sum of all questions across all passages in this test.
+        Returns the count of actual questions (1-40) across all passages in this test.
         """
-        total_questions = 0
+        all_questions = []
+        
+        # Loop through all passages
         for passage in self.passages.all():
+            # Loop through all question types in this passage
             for question_type in passage.questions.all():
-                total_questions += question_type.actual_count
-        return total_questions
+                if not question_type.questions_data:
+                    continue
+                
+                # Extract all questions from questions_data
+                for question in question_type.questions_data:
+                    # Get question number (could be 'number', 'question_number', or in the question object)
+                    question_number = None
+                    if isinstance(question, dict):
+                        question_number = question.get('number') or question.get('question_number')
+                    
+                    # Only count questions numbered 1-40 (actual IELTS questions)
+                    if question_number is not None:
+                        try:
+                            q_num = int(question_number)
+                            if 1 <= q_num <= 40:
+                                all_questions.append(q_num)
+                        except (ValueError, TypeError):
+                            # If number is not a valid integer, skip
+                            pass
+        
+        # Return unique count (in case of duplicates)
+        return len(set(all_questions))
     
     def can_add_passage(self):
         """
